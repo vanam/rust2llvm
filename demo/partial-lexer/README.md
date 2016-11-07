@@ -9,7 +9,7 @@ stack ghci
 Load the lexer:
 
 ```
-:load Lexer.hs
+:load Lexer ChangeState
 ```
 
 Run the tokenizer:

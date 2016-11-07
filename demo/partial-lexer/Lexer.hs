@@ -2,8 +2,10 @@ module Falsum (tokenizeTest) where
 
 import Control.Applicative ((<*), (*>), (<$>), (<*>))
 import Text.ParserCombinators.Parsec
+import Text.Parsec.Prim hiding (try)
 import Data.List (nub, sort)
-import Data.Char (isSpace, digitToInt, isAscii, isHexDigit, chr)
+import Data.Char (isSpace, digitToInt, isAscii, isHexDigit, chr, ord)
+import ChangeState
 
 
 type TokenPos = (Token, SourcePos)
@@ -12,9 +14,11 @@ withPos :: Parser Token -> Parser TokenPos
 withPos p = flip (,) <$> getPosition <*> p
 
 data Literal = Integer Int
-             | String String
+             | ByteString String
+             | UnicodeString String
              | Bool Bool
-             | Char Char
+             | ByteChar Char
+             | UnicodeChar Char
   deriving (Show, Eq)
 
 data Coupling = Outer | Inner
@@ -198,31 +202,64 @@ charConvert c = case c of
   't' -> '\t'
   '\\' -> '\\'
   '0' -> '\0'
+  '\'' -> '\''
+  '"' -> '"'
 
-hexToChar = chr . foldl1 (\x y -> x * 16 + y) . map digitToInt
+hexStringToInt = foldl1 (\x y -> x * 16 + y) . map digitToInt
+
+upTo n p = choice $ map (try . (flip count p)) $ reverse [1..n]
 
 inChar :: Parser Char
 inChar =  try (char '\\' *> char 'u' *> between (char '{') (char '}')
-                                           (do digits <- count 2 $ satisfy isHexDigit
-                                               return $ hexToChar digits))
+                                           (do digits <- upTo 6 $ satisfy isHexDigit
+                                               ordinal <- return $ hexStringToInt digits
+                                               if ordinal <= ord maxBound
+                                                 then return $ chr ordinal
+                                                 else fail "too big ordinal"))
        <|> inByte
-       <|> anyToken
+       <|> anyChar
 
 inByte :: Parser Char
-inByte = try (char '\\' *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0']))
+inByte = try (char '\\' *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0', '\'', '"']))
          <|> char '\\' *> char 'x' *> (do digits <- count 2 $ satisfy isHexDigit
-                                          return $ hexToChar digits)
+                                          return $ chr . hexStringToInt $ digits)
          <|> satisfy isAscii
 
 character :: Parser Char
 character = char '\'' `around` inChar
 
 byte :: Parser Char
-byte = char '\'' `around` inByte
+byte = char 'b' *> char '\'' `around` inByte
+
+seqLit :: Parser Char -> Parser String
+seqLit c = char '"' *> manyTill c (char '"')
+
+stringLit = seqLit inChar
+byteStringLit = char 'b' *> seqLit inByte
+
+rawSeqLit c = changeState (const ()) (const 0) $
+  char 'r' *> (do many (char '#' >> modifyState (1+))
+                  char '"'
+                  hashCount <- getState
+                  lit <- manyTill c (try $ char '"' >> count hashCount (char '#'))
+                  return $ lit)
+
+rawStringLit = rawSeqLit anyChar
+rawByteStringLit = char 'b' *> rawSeqLit (satisfy isAscii)
+
+stringLiterals = choice
+  [ withPos $ fmap Literal $ fmap ByteChar $ try byte
+  , withPos $ fmap Literal $ fmap UnicodeChar $ try character
+  , withPos $ fmap Literal $ fmap ByteString $ try byteStringLit
+  , withPos $ fmap Literal $ fmap UnicodeString $ try stringLit
+  , withPos $ fmap Literal $ fmap ByteString $ try rawByteStringLit
+  , withPos $ fmap Literal $ fmap UnicodeString $ try rawStringLit
+  ]
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
+    , stringLiterals
     , withPos $ fmap Ide $ simpleIdentifier
     , withPos $ docComment
     , withPos $ attribute
