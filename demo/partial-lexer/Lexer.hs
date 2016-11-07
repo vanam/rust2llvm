@@ -210,51 +210,55 @@ hexStringToInt = foldl1 (\x y -> x * 16 + y) . map digitToInt
 upTo n p = choice $ map (try . (flip count p)) $ reverse [1..n]
 
 inChar :: Parser Char
-inChar =  try (char '\\' *> char 'u' *> between (char '{') (char '}')
-                                           (do digits <- upTo 6 $ satisfy isHexDigit
-                                               ordinal <- return $ hexStringToInt digits
-                                               if ordinal <= ord maxBound
-                                                 then return $ chr ordinal
-                                                 else fail "too big ordinal"))
+inChar =  try (string "\\u") *> between (char '{') (char '}')
+                                        (do digits <- upTo 6 $ satisfy isHexDigit
+                                            ordinal <- return $ hexStringToInt digits
+                                            if ordinal <= ord maxBound
+                                               then return $ chr ordinal
+                                               else fail "too big ordinal")
        <|> inByte
        <|> anyChar
 
 inByte :: Parser Char
-inByte = try (char '\\' *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0', '\'', '"']))
-         <|> char '\\' *> char 'x' *> (do digits <- count 2 $ satisfy isHexDigit
-                                          return $ chr . hexStringToInt $ digits)
+inByte = try (char '\\' *> char 'x') *> (do digits <- count 2 $ satisfy isHexDigit
+                                            return $ chr . hexStringToInt $ digits)
+         <|> try (char '\\') *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0', '\'', '"'])
          <|> satisfy isAscii
 
 character :: Parser Char
 character = char '\'' `around` inChar
 
 byte :: Parser Char
-byte = char 'b' *> char '\'' `around` inByte
+byte = try (char 'b') *> char '\'' `around` inByte
+
+indentSkipper = optional $ try $ string "\\\n" *> simpleSpaces
 
 seqLit :: Parser Char -> Parser String
-seqLit c = char '"' *> manyTill c (char '"')
+seqLit c = char '"' *> indentSkipper *> manyTill (c <* indentSkipper) (char '"')
 
 stringLit = seqLit inChar
-byteStringLit = char 'b' *> seqLit inByte
+byteStringLit = try (char 'b') *> seqLit inByte
 
 rawSeqLit c = changeState (const ()) (const 0) $
-  char 'r' *> (do many (char '#' >> modifyState (1+))
-                  char '"'
-                  hashCount <- getState
-                  lit <- manyTill c (try $ char '"' >> count hashCount (char '#'))
-                  return $ lit)
+  try (char 'r') *> (do many (char '#' >> modifyState (1+))
+                        char '"'
+                        hashCount <- getState
+                        manyTill c (try $ char '"' >> count hashCount (char '#')))
 
 rawStringLit = rawSeqLit anyChar
-rawByteStringLit = char 'b' *> rawSeqLit (satisfy isAscii)
+rawByteStringLit = try (char 'b') *> rawSeqLit (satisfy isAscii)
 
 stringLiterals = choice
-  [ withPos $ fmap Literal $ fmap ByteChar $ try byte
-  , withPos $ fmap Literal $ fmap UnicodeChar $ try character
-  , withPos $ fmap Literal $ fmap ByteString $ try byteStringLit
-  , withPos $ fmap Literal $ fmap UnicodeString $ try stringLit
-  , withPos $ fmap Literal $ fmap ByteString $ try rawByteStringLit
-  , withPos $ fmap Literal $ fmap UnicodeString $ try rawStringLit
+  [ withPos $ fmap Literal $ fmap ByteChar $ byte
+  , withPos $ fmap Literal $ fmap ByteString $ byteStringLit
+  , withPos $ fmap Literal $ fmap ByteString $ rawByteStringLit
+  , withPos $ fmap Literal $ fmap UnicodeChar $ character
+  , withPos $ fmap Literal $ fmap UnicodeString $ stringLit
+  , withPos $ fmap Literal $ fmap UnicodeString $ rawStringLit
   ]
+
+integerSuffixes = ["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "isize", "usize"]
+floatSuffixes = ["f32", "f64"]
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
