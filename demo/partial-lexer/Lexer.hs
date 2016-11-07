@@ -3,7 +3,7 @@ module Falsum (tokenizeTest) where
 import Control.Applicative ((<*), (*>), (<$>), (<*>))
 import Text.ParserCombinators.Parsec
 import Data.List (nub, sort)
-import Data.Char (isAlpha, toLower, toUpper, isSpace, digitToInt)
+import Data.Char (isSpace, digitToInt, isAscii, isHexDigit, chr)
 
 
 type TokenPos = (Token, SourcePos)
@@ -52,15 +52,18 @@ shebang =
 identifierStart = ['A'..'Z'] ++ ['a'..'z'] ++ "_"
 identifierLetter = identifierStart ++ ['0'..'9']
 
-simpleIdentifier =
-  do fc  <- try $ oneOf identifierStart
-     r   <- many $ oneOf identifierLetter
-     return $ [fc] ++ r
+simpleIdentifier :: Parser String
+simpleIdentifier = (++)
+                 <$> (fmap return $ try $ oneOf identifierStart)
+                 <*> (many $ oneOf identifierLetter)
 
 simpleSpaces = skipMany (satisfy isSpace)
 simpleSpaces1 = skipMany1 (satisfy isSpace)
 
-spacesAround p = simpleSpaces *> p <* simpleSpaces
+
+around a p = a *> p <* a
+
+spacesAround p = simpleSpaces `around` p
 
 lineDocStart = (try $ string "///") <|> (try $ string "//!")
 
@@ -110,16 +113,6 @@ multiLineDocComment =
      return $ CoupledDoc (if start !! 2 == '!' then Inner else Outer) $ init . init $ content
 
 docComment = oneLineDocComment <|> multiLineDocComment <?> ""
---docComments = many (lexeme oneLineDocComment <|> lexeme multiLineDocComment <?> "")
-
-{-
-symbol name = lexeme $ string name
-
-lexeme p =
-  do x <- p
-     whiteSpaces
-     return x
--}
 
 reservedConvert :: String -> Keyword
 reservedConvert string = case string of
@@ -199,6 +192,34 @@ rbr = withPos $ char '}' >> return RBrace
 
 brackets = choice [lpr, rpr, lsq, rsq, lbr, rbr]
 
+charConvert c = case c of
+  'n' -> '\n'
+  'r' -> '\r'
+  't' -> '\t'
+  '\\' -> '\\'
+  '0' -> '\0'
+
+hexToChar = chr . foldl1 (\x y -> x * 16 + y) . map digitToInt
+
+inChar :: Parser Char
+inChar =  try (char '\\' *> char 'u' *> between (char '{') (char '}')
+                                           (do digits <- count 2 $ satisfy isHexDigit
+                                               return $ hexToChar digits))
+       <|> inByte
+       <|> anyToken
+
+inByte :: Parser Char
+inByte = try (char '\\' *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0']))
+         <|> char '\\' *> char 'x' *> (do digits <- count 2 $ satisfy isHexDigit
+                                          return $ hexToChar digits)
+         <|> satisfy isAscii
+
+character :: Parser Char
+character = char '\'' `around` inChar
+
+byte :: Parser Char
+byte = char '\'' `around` inByte
+
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
@@ -212,9 +233,6 @@ tokenizer :: Parser [TokenPos]
 tokenizer = optional bom *> whiteSpaces
           *> optional shebang *> whiteSpaces
           *> many (arbitraryToken <* whiteSpaces)
-
-{-tokenize :: SourceName -> String -> Either ParseError [TokenPos]
-tokenize = runParser tokenizer ()-}
 
 tokenizeTest :: String -> IO ()
 tokenizeTest = parseTest tokenizer
