@@ -4,7 +4,7 @@ import Control.Applicative ((<*), (*>), (<$>), (<*>))
 import Text.ParserCombinators.Parsec
 import Text.Parsec.Prim hiding (try)
 import Data.List (nub, sort)
-import Data.Char (isSpace, digitToInt, isAscii, isHexDigit, chr, ord)
+import Data.Char (isSpace, isAlpha, isDigit, digitToInt, isAscii, isHexDigit, chr, ord)
 import Data.Maybe (fromJust)
 import ChangeState
 
@@ -65,16 +65,17 @@ shebang =
      skipMany $ satisfy (/= '\n')
      return ()
 
-identifierStart = ['A'..'Z'] ++ ['a'..'z'] ++ ['\x80'..'\xff'] ++ "_"
-identifierLetter = identifierStart ++ ['0'..'9']
 
-simpleIdentifier :: Parser String
-simpleIdentifier = (++)
-                 <$> (fmap return $ try $ oneOf identifierStart)
-                 <*> (many $ oneOf identifierLetter)
+isSymbolStart c = '_' == c || isAlpha c
+isSymbolLetter c = isSymbolStart c || isDigit c
 
-simpleSpaces = skipMany (satisfy isSpace)
-simpleSpaces1 = skipMany1 (satisfy isSpace)
+symbol :: Parser String
+symbol = (++)
+       <$> (fmap return $ try $ satisfy isSymbolStart)
+       <*> (many $ satisfy isSymbolLetter)
+
+simpleSpaces = skipMany $ satisfy isSpace
+simpleSpaces1 = skipMany1 $ satisfy isSpace
 
 
 around a p = a *> p <* a
@@ -174,18 +175,18 @@ reservedConvert string = case string of
 reservedName = choice . map p $ sort reservedNameList
   where p name = withPos $ 
                    do n <- try $ string name
-                      notFollowedBy $ oneOf identifierLetter
+                      notFollowedBy $ satisfy isSymbolLetter
                       return $ Keyword $ reservedConvert n
 
 attributeContent
-  =  try (do ide <- spacesAround simpleIdentifier
+  =  try (do ide <- spacesAround symbol
              notFollowedBy $ spacesAround $ oneOf ['=','(']
              return $ Single ide)
-  <|> try (do id1 <- simpleIdentifier
+  <|> try (do id1 <- symbol
               spacesAround $ char '='
-              id2 <- simpleIdentifier
+              id2 <- symbol
               return $ KeyValue id1 id2)
-  <|> try (do ide <- simpleIdentifier
+  <|> try (do ide <- symbol
               spacesAround $ char '('
               attrs <- attributeContent `sepBy` (spacesAround $ char ',')
               spacesAround $ char ')'
@@ -330,7 +331,7 @@ floatLit =
          return $ FloatLit suffix $ if suffix == Just F32
            then Left $ read num
            else Right $ read num
-      <|> do try (char '.' <* notFollowedBy (oneOf identifierStart))
+      <|> do try (char '.' <* notFollowedBy (satisfy isSymbolStart))
              return $ FloatLit Nothing (Right $ read digits))
       <|> do ex <- expPart
              suffix <- (fmap . fmap) floatSuffixConvert $ optionMaybe $ choice $ map (try . string) floatSuffixes
@@ -342,15 +343,15 @@ floatLit =
 lifeTime
   =   do try $ char '\'' *> string "static"
          return StaticLife
-  <|> do symbol <- try $ char '\'' *> simpleIdentifier <* notFollowedBy (char '\'')
-         return $ DynamicLife symbol
+  <|> do symb <- try $ char '\'' *> symbol <* notFollowedBy (char '\'')
+         return $ DynamicLife symb
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
     , withPos $ fmap LifeTime $ lifeTime
     , stringLiterals
-    , withPos $ fmap Symbol $ simpleIdentifier
+    , withPos $ fmap Symbol $ symbol
     , withPos $ docComment
     , withPos $ attribute
     , brackets
