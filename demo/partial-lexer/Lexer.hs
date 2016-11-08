@@ -5,6 +5,7 @@ import Text.ParserCombinators.Parsec
 import Text.Parsec.Prim hiding (try)
 import Data.List (nub, sort)
 import Data.Char (isSpace, digitToInt, isAscii, isHexDigit, chr, ord)
+import Data.Maybe (fromJust)
 import ChangeState
 
 
@@ -23,7 +24,6 @@ data Literal = IntLit (Maybe IntSuffix) Integer
              | FloatLit (Maybe FloatSuffix) (Either Float Double)
              | ByteString String
              | UnicodeString String
-             | Bool Bool
              | ByteChar Char
              | UnicodeChar Char
   deriving (Show, Eq)
@@ -283,7 +283,22 @@ integerSuffixConvert suf = case suf of
 
 floatSuffixes = ["f32", "f64"]
 
-intFloatLit
+floatSuffixConvert suf = case suf of
+  "f32" -> F32
+  "f64" -> F64
+
+intLit base digitLetters =
+  do digits <- many1 $ (optional (char '_')) `around` digitLetters
+     suffix <- (fmap . fmap) integerSuffixConvert $ optionMaybe $ choice $ map (try . string) integerSuffixes
+     return $ IntLit suffix $ toInteger $ stringToInt base digits
+
+
+decLit = intLit 10 digit
+hexLit = intLit 16 $ satisfy isHexDigit
+octLit = intLit 8 $ satisfy (flip elem ['0'..'7'])
+binLit = intLit 2 $ satisfy (flip elem ['0', '1'])
+
+intLits
   =   try (string "0x") *> hexLit
   <|> try (string "0o") *> octLit
   <|> try (string "0b") *> binLit
@@ -293,15 +308,33 @@ minus =
  do char '-'
     return Minus
 
-intLit base digitLetters =
-  do digits <- many1 $ (optional (char '_')) `around` digitLetters
-     suffix <- optionMaybe $ choice $ map (try . string) integerSuffixes
-     return $ IntLit (fmap integerSuffixConvert suffix) $ toInteger $ stringToInt base digits
+expPart :: Parser Integer
+expPart =
+ do oneOf ['e', 'E']
+    sign <- optionMaybe $ oneOf ['+', '-']
+    digits <- many1 $ (optional (char '_')) `around` digit
+    return $ (if sign == Just '-' then negate else id) $ toInteger $ stringToInt 10 digits
 
-decLit = intLit 10 digit
-hexLit = intLit 16 $ satisfy isHexDigit
-octLit = intLit 8 $ satisfy (flip elem ['0'..'7'])
-binLit = intLit 2 $ satisfy (flip elem ['0', '1'])
+floatLit =
+  do digits <- many1 $ (optional (char '_')) `around` digit
+     (do try (char '.' <* lookAhead digit)
+         digitsAfter <- many1 $ (optional (char '_')) `around` digit
+         ex <- optionMaybe expPart
+         suffix <- (fmap . fmap) floatSuffixConvert $ optionMaybe $ choice $ map (try . string) floatSuffixes
+         num <- return $ digits ++ ['.'] ++ digitsAfter
+         num <- if ex == Nothing then return num else return (num ++ ['e'] ++ show (fromJust ex))
+         return $ FloatLit suffix $ if suffix == Just F32
+           then Left $ read num
+           else Right $ read num
+      <|> do try (char '.' <* notFollowedBy (oneOf identifierStart))
+             return $ FloatLit Nothing (Right $ read digits))
+      <|> do ex <- expPart
+             suffix <- (fmap . fmap) floatSuffixConvert $ optionMaybe $ choice $ map (try . string) floatSuffixes
+             num <- return $ digits ++ ['e'] ++ show ex
+             return $ FloatLit suffix $ if suffix == Just F32
+               then Left $ read num
+               else Right $ read num
+
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
@@ -312,7 +345,8 @@ arbitraryToken = choice
     , withPos $ attribute
     , brackets
     , withPos $ minus
-    , withPos $ fmap Literal $ intFloatLit
+    , withPos $ fmap Literal $ try floatLit
+    , withPos $ fmap Literal $ intLits
     ]
 
 tokenizer :: Parser [TokenPos]
