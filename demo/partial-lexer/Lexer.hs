@@ -14,6 +14,9 @@ type TokenPos = (Token, SourcePos)
 withPos :: Parser Token -> Parser TokenPos
 withPos p = flip (,) <$> getPosition <*> p
 
+data LifeTime = StaticLife | DynamicLife String
+  deriving (Show, Eq)
+
 data IntSuffix = U8 | I8 | U16 | I16 | U32 | I32 | U64 | I64 | ISize | USize
   deriving (Show, Eq)
 
@@ -38,6 +41,7 @@ data Attribute = Single String
 
 data Token = Symbol String
            | Literal Literal
+           | LifeTime LifeTime
            | Keyword Keyword
            | LParen | RParen
            | LBrack | RBrack
@@ -61,7 +65,7 @@ shebang =
      skipMany $ satisfy (/= '\n')
      return ()
 
-identifierStart = ['A'..'Z'] ++ ['a'..'z'] ++ "_"
+identifierStart = ['A'..'Z'] ++ ['a'..'z'] ++ ['\x80'..'\xff'] ++ "_"
 identifierLetter = identifierStart ++ ['0'..'9']
 
 simpleIdentifier :: Parser String
@@ -335,10 +339,16 @@ floatLit =
                then Left $ read num
                else Right $ read num
 
+lifeTime
+  =   do try $ char '\'' *> string "static"
+         return StaticLife
+  <|> do symbol <- try $ char '\'' *> simpleIdentifier <* notFollowedBy (char '\'')
+         return $ DynamicLife symbol
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
+    , withPos $ fmap LifeTime $ lifeTime
     , stringLiterals
     , withPos $ fmap Symbol $ simpleIdentifier
     , withPos $ docComment
