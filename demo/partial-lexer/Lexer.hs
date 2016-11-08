@@ -39,16 +39,20 @@ data Attribute = Single String
                | AttributeList String [Attribute]
   deriving (Show, Eq)
 
+data StructureSymbol = Semicolon | Comma | TripleDot | DoubleDot | Dot | LParen | RParen | LBrack | RBrack | LBrace | RBrace | AtSign | Tilde | ModSep | Colon | Dollar | Question | LArrow | RArrow -- | Pound
+  deriving (Show, Eq)
+
+data Operator = DoubleEq | FatArrow | EqSign | Neq | Not | Leq | Shl | Shleq | Less | Geq | Shr | Shreq | Greater | Minus | Minuseq | DoubleAnd | And | Andeq | DoubleOr | Or | Oreq | Plus | Pluseq | Star | Stareq | Slash | Slasheq | Caret | Careteq | Percent | Percenteq
+  deriving (Show, Eq)
+
 data Token = Symbol String
            | Literal Literal
            | LifeTime LifeTime
            | Keyword Keyword
-           | LParen | RParen
-           | LBrack | RBrack
-           | LBrace | RBrace
+           | StructSym StructureSymbol
+           | Operator Operator
            | CoupledDoc Coupling String
            | CoupledAttribute Coupling Attribute
-           | Minus
     deriving (Show, Eq)
 
 data Keyword = Underscore | As | Box | Break | Const | Continue | Crate | Else | Enum | Extern | False | Fn | For | If | Impl | In | Let | Loop | Match | Mod | Move | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct | Trait | True | Type | TypeOf | Unsafe | Use | Where | While deriving (Show, Eq)
@@ -199,7 +203,7 @@ attribute =
      return $ CoupledAttribute (if start !! 1 == '!' then Inner else Outer) content
 
 
-lsq, rsq, lbr, rbr :: Parser TokenPos
+{-lsq, rsq, lbr, rbr :: Parser TokenPos
 lpr = withPos $ char '(' >> return LParen
 rpr = withPos $ char ')' >> return RParen
 lsq = withPos $ char '[' >> return LBrack
@@ -207,7 +211,7 @@ rsq = withPos $ char ']' >> return RBrack
 lbr = withPos $ char '{' >> return LBrace
 rbr = withPos $ char '}' >> return RBrace
 
-brackets = choice [lpr, rpr, lsq, rsq, lbr, rbr]
+brackets = choice [lpr, rpr, lsq, rsq, lbr, rbr]-}
 
 charConvert c = case c of
   'n' -> '\n'
@@ -309,10 +313,6 @@ intLits
   <|> try (string "0b") *> binLit
   <|> decLit
 
-minus =
- do char '-'
-    return Minus
-
 expPart :: Parser Integer
 expPart =
  do oneOf ['e', 'E']
@@ -346,6 +346,17 @@ lifeTime
   <|> do symb <- try $ char '\'' *> symbol <* notFollowedBy (char '\'')
          return $ DynamicLife symb
 
+syntax1 = [(Semicolon, ";"), (Comma, ","), (TripleDot, "..."), (DoubleDot, ".."), (Dot, "."), (LParen, "("), (RParen, ")"), (LBrace, "{"), (RBrace, "}"), (LBrack, "["), (RBrack, "]"), (AtSign, "@"){-, (Pound, "#")-}, (Tilde, "~"), (ModSep, "::"), (Colon, ":"), (Dollar, "$"), (Question, "?")]
+
+operators1 = [(DoubleEq, "=="), (FatArrow, "=>"), (EqSign, "="), (Neq, "!="), (Not, "!"), (Leq, "<="), (Shleq, "<<="), (Shl, "<<"), (Less, "<"), (Geq, ">="), (Shreq, ">>="), (Shr, ">>"), (Greater, ">")]
+
+syntax2 = [(LArrow, "<-"), (RArrow, "->")]
+
+operators2 = [(Minuseq, "-="), (Minus, "-"), (DoubleAnd, "&&"), (And, "&"), (DoubleOr, "||"), (Oreq, "|="), (Or, "|"), (Pluseq, "+="), (Plus, "+"), (Stareq, "*="), (Star, "*"), (Slasheq, "/="), (Slash, "/"), (Careteq, "^="), (Caret, "^"), (Percenteq, "%="), (Percent, "%")]
+
+parserize (val, str) = try $ string str *> return val
+combineTrivial constructor trivials = choice $ map (withPos . fmap constructor . parserize) trivials
+
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
@@ -354,8 +365,10 @@ arbitraryToken = choice
     , withPos $ fmap Symbol $ symbol
     , withPos $ docComment
     , withPos $ attribute
-    , brackets
-    , withPos $ minus
+    , combineTrivial StructSym syntax1
+    , combineTrivial Operator operators1
+    , combineTrivial StructSym syntax2
+    , combineTrivial Operator operators2
     , withPos $ fmap Literal $ try floatLit
     , withPos $ fmap Literal $ intLits
     ]
