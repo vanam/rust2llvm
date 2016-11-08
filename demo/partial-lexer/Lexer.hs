@@ -13,7 +13,14 @@ type TokenPos = (Token, SourcePos)
 withPos :: Parser Token -> Parser TokenPos
 withPos p = flip (,) <$> getPosition <*> p
 
-data Literal = Integer Int
+data IntSuffix = U8 | I8 | U16 | I16 | U32 | I32 | U64 | I64 | ISize | USize
+  deriving (Show, Eq)
+
+data FloatSuffix = F32 | F64
+  deriving (Show, Eq)
+
+data Literal = IntLit (Maybe IntSuffix) Integer
+             | FloatLit (Maybe FloatSuffix) (Either Float Double)
              | ByteString String
              | UnicodeString String
              | Bool Bool
@@ -29,7 +36,7 @@ data Attribute = Single String
                | AttributeList String [Attribute]
   deriving (Show, Eq)
 
-data Token = Ide String
+data Token = Symbol String
            | Literal Literal
            | Keyword Keyword
            | LParen | RParen
@@ -37,6 +44,7 @@ data Token = Ide String
            | LBrace | RBrace
            | CoupledDoc Coupling String
            | CoupledAttribute Coupling Attribute
+           | Minus
     deriving (Show, Eq)
 
 data Keyword = Underscore | As | Box | Break | Const | Continue | Crate | Else | Enum | Extern | False | Fn | For | If | Impl | In | Let | Loop | Match | Mod | Move | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct | Trait | True | Type | TypeOf | Unsafe | Use | Where | While deriving (Show, Eq)
@@ -205,7 +213,9 @@ charConvert c = case c of
   '\'' -> '\''
   '"' -> '"'
 
-hexStringToInt = foldl1 (\x y -> x * 16 + y) . map digitToInt
+stringToInt base = foldl1 (\x y -> x * base + y) . map digitToInt
+
+hexStringToInt = stringToInt 16
 
 upTo n p = choice $ map (try . (flip count p)) $ reverse [1..n]
 
@@ -248,26 +258,61 @@ rawSeqLit c = changeState (const ()) (const 0) $
 rawStringLit = rawSeqLit anyChar
 rawByteStringLit = try (char 'b') *> rawSeqLit (satisfy isAscii)
 
-stringLiterals = choice
-  [ withPos $ fmap Literal $ fmap ByteChar $ byte
-  , withPos $ fmap Literal $ fmap ByteString $ byteStringLit
-  , withPos $ fmap Literal $ fmap ByteString $ rawByteStringLit
-  , withPos $ fmap Literal $ fmap UnicodeChar $ character
-  , withPos $ fmap Literal $ fmap UnicodeString $ stringLit
-  , withPos $ fmap Literal $ fmap UnicodeString $ rawStringLit
+stringLiterals = choice . map (withPos . fmap Literal) $
+  [ fmap ByteChar $ byte
+  , fmap ByteString $ byteStringLit
+  , fmap ByteString $ rawByteStringLit
+  , fmap UnicodeChar $ character
+  , fmap UnicodeString $ stringLit
+  , fmap UnicodeString $ rawStringLit
   ]
 
-integerSuffixes = ["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "isize", "usize"]
+integerSuffixes = ["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "usize", "isize"]
+
+integerSuffixConvert suf = case suf of
+  "u8" -> U8
+  "i8" -> I8
+  "u16" -> U16
+  "i16" -> I16
+  "u32" -> U32
+  "i32" -> I32
+  "u64" -> U64
+  "i64" -> I64
+  "usize" -> USize
+  "isize" -> ISize
+
 floatSuffixes = ["f32", "f64"]
+
+intFloatLit
+  =   try (string "0x") *> hexLit
+  <|> try (string "0o") *> octLit
+  <|> try (string "0b") *> binLit
+  <|> decLit
+
+minus =
+ do char '-'
+    return Minus
+
+intLit base digitLetters =
+  do digits <- many1 $ (optional (char '_')) `around` digitLetters
+     suffix <- optionMaybe $ choice $ map (try . string) integerSuffixes
+     return $ IntLit (fmap integerSuffixConvert suffix) $ toInteger $ stringToInt base digits
+
+decLit = intLit 10 digit
+hexLit = intLit 16 $ satisfy isHexDigit
+octLit = intLit 8 $ satisfy (flip elem ['0'..'7'])
+binLit = intLit 2 $ satisfy (flip elem ['0', '1'])
 
 arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
     [ try reservedName
     , stringLiterals
-    , withPos $ fmap Ide $ simpleIdentifier
+    , withPos $ fmap Symbol $ simpleIdentifier
     , withPos $ docComment
     , withPos $ attribute
     , brackets
+    , withPos $ minus
+    , withPos $ fmap Literal $ intFloatLit
     ]
 
 tokenizer :: Parser [TokenPos]
