@@ -35,7 +35,7 @@ data Coupling = Outer | Inner
   deriving (Show, Eq)
 
 data Attribute = Single String
-               | KeyValue String String
+               | KeyValue String Literal
                | AttributeList String [Attribute]
   deriving (Show, Eq)
 
@@ -188,7 +188,15 @@ attributeContent
              return $ Single ide)
   <|> try (do id1 <- symbol
               spacesAround $ char '='
-              id2 <- symbol
+              id2 <- choice
+                       [ fmap ByteChar $ byte
+                       , fmap ByteString $ byteStringLit
+                       , fmap ByteString $ rawByteStringLit
+                       , fmap UnicodeChar $ character
+                       , fmap UnicodeString $ stringLit
+                       , fmap UnicodeString $ rawStringLit
+                       , try floatLit
+                       , intLits]
               return $ KeyValue id1 id2)
   <|> try (do ide <- symbol
               spacesAround $ char '('
