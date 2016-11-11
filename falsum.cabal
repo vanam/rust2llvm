@@ -15,7 +15,8 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib
+  exposed-modules:     Falsum.Lexer
+                     , ChangeState
   build-depends:       base >= 4.7 && < 5
                      , parsec >= 3.1.11
   default-language:    Haskell2010
@@ -26,6 +27,7 @@ executable falsum
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , falsum
+                     , directory
   default-language:    Haskell2010
 
 test-suite falsum-test
