@@ -5,6 +5,7 @@ import           Control.Applicative           ((*>), (<$>), (<*), (<*>))
 import           Data.Char                     (chr, digitToInt, isAlpha,
                                                 isAscii, isDigit, isHexDigit,
                                                 isSpace, ord)
+import           Data.Functor.Identity         (Identity)
 import           Data.List                     (nub, sort)
 import           Data.Maybe                    (fromJust)
 import           Data.Tuple                    (swap)
@@ -32,6 +33,7 @@ data IntSuffix = U8
                | ISize
   deriving (Show, Eq)
 
+integerSuffixTable :: [(IntSuffix, String)]
 integerSuffixTable = [ (U8, "u8")
                      , (I8, "i8")
                      , (U16, "u16")
@@ -48,7 +50,8 @@ data FloatSuffix = F32
                  | F64
   deriving (Show, Eq)
 
-floatSuffixeTable = [(F32, "f32"), (F64, "f64")]
+floatSuffixTable :: [(FloatSuffix, String)]
+floatSuffixTable = [(F32, "f32"), (F64, "f64")]
 
 data Literal = IntLit (Maybe IntSuffix) Integer
              | FloatLit (Maybe FloatSuffix) (Either Float Double)
@@ -88,6 +91,7 @@ data StructureSymbol = Semicolon
                      | RArrow -- | Pound
   deriving (Show, Eq)
 
+structureSymbolTable :: [(StructureSymbol, String)]
 structureSymbolTable = [ (Semicolon, ";")
                        , (Comma, ",")
                        , (TripleDot, "...")
@@ -142,6 +146,7 @@ data Operator = DoubleEq
               | Percenteq
   deriving (Show, Eq)
 
+operatorTable :: [(Operator, String)]
 operatorTable = [ (DoubleEq, "==")
                 , (FatArrow, "=>")
                 , (EqSign, "=")
@@ -224,6 +229,7 @@ data Keyword = Underscore
              | While
   deriving (Show, Eq)
 
+keywordTable :: [(Keyword, String)]
 keywordTable = [ (Underscore, "_")
                , (As, "as")
                , (Box, "break")
@@ -260,12 +266,17 @@ keywordTable = [ (Underscore, "_")
                , (While, "while")
                ]
 
+{-
+forwardLookup :: Eq a => [(a, b)] -> a -> b
 forwardLookup table = fromJust . flip lookup table
-
+-}
+backwardLookup :: Eq b => [(a, b)] -> b -> a
 backwardLookup table = fromJust . flip lookup (map swap table)
 
+bom :: Parser String
 bom = string "\xef\xbb\xbf"
 
+shebang :: Parser ()
 shebang =
   do
     try $ string "#!"
@@ -277,23 +288,31 @@ shebang =
     skipMany $ satisfy (/= '\n')
     return ()
 
+isSymbolStart :: Char -> Bool
 isSymbolStart c = '_' == c || isAlpha c
 
+isSymbolLetter :: Char -> Bool
 isSymbolLetter c = isSymbolStart c || isDigit c
 
 symbol :: Parser String
 symbol = (++) <$> (fmap return $ try $ satisfy isSymbolStart) <*> (many $ satisfy isSymbolLetter)
 
+simpleSpaces :: Parser ()
 simpleSpaces = skipMany $ satisfy isSpace
 
+simpleSpaces1 :: Parser ()
 simpleSpaces1 = skipMany1 $ satisfy isSpace
 
+around :: Parser a -> Parser b -> Parser b
 around a p = a *> p <* a
 
+spacesAround :: Parser a -> Parser a
 spacesAround p = simpleSpaces `around` p
 
+lineDocStart :: Parser String
 lineDocStart = (try $ string "///") <|> (try $ string "//!")
 
+oneLineComment :: Parser ()
 oneLineComment =
   do
     notFollowedBy lineDocStart
@@ -301,6 +320,7 @@ oneLineComment =
     skipMany $ satisfy (/= '\n')
     return ()
 
+inComment :: Parser String
 inComment = do
               try $ string "*/"
             <|> do
@@ -320,11 +340,13 @@ inComment = do
   where
     startEnd = nub $ "*/" ++ "/*"
 
+multiDocStart :: Parser String
 multiDocStart =
   do
     notFollowedBy (string "/**/")
     (try $ string "/**") <|> (try $ string "/*!")
 
+multiLineComment :: Parser ()
 multiLineComment =
   do
     notFollowedBy multiDocStart
@@ -332,8 +354,10 @@ multiLineComment =
     inComment
     return ()
 
+whiteSpaces :: Parser ()
 whiteSpaces = skipMany (simpleSpaces1 <|> oneLineComment <|> multiLineComment <?> "")
 
+oneLineDocComment :: Parser Token
 oneLineDocComment =
   do
     start <- lineDocStart
@@ -344,6 +368,7 @@ oneLineDocComment =
                   else Outer)
                content
 
+multiLineDocComment :: Parser Token
 multiLineDocComment =
   do
     start <- multiDocStart
@@ -353,8 +378,10 @@ multiLineDocComment =
                   then Inner
                   else Outer) $ init . init $ content
 
+docComment :: Parser Token
 docComment = oneLineDocComment <|> multiLineDocComment <?> ""
 
+reservedName :: Parser TokenPos
 reservedName = choice . map keywordParser $ sort $ map snd keywordTable
   where
     keywordParser name = withPos $ do
@@ -362,6 +389,7 @@ reservedName = choice . map keywordParser $ sort $ map snd keywordTable
       notFollowedBy $ satisfy isSymbolLetter
       return $ Keyword $ backwardLookup keywordTable n
 
+attributeContent :: Parser Attribute
 attributeContent = try
                      (do
                         ide <- spacesAround symbol
@@ -390,6 +418,7 @@ attributeContent = try
                             spacesAround $ char ')'
                             return $ AttributeList ide attrs)
 
+attribute :: Parser Token
 attribute =
   do
     start <- (try $ string "#[") <|> (try $ string "#![")
@@ -401,6 +430,7 @@ attribute =
                   else Outer)
                content
 
+charConvert :: Char -> Char
 charConvert c =
   case c of
     'n'  -> '\n'
@@ -411,10 +441,13 @@ charConvert c =
     '\'' -> '\''
     '"'  -> '"'
 
+stringToInt :: Int -> String -> Int
 stringToInt base = foldl1 (\x y -> x * base + y) . map digitToInt
 
+hexStringToInt :: String -> Int
 hexStringToInt = stringToInt 16
 
+upTo :: Int -> Parser a -> Parser [a]
 upTo n p = choice $ map (try . (flip count p)) $ reverse [1 .. n]
 
 inChar :: Parser Char
@@ -441,15 +474,19 @@ character = char '\'' `around` inChar
 byte :: Parser Char
 byte = try (char 'b') *> char '\'' `around` inByte
 
+indentSkipper :: Parser ()
 indentSkipper = optional $ try $ string "\\\n" *> simpleSpaces
 
 seqLit :: Parser Char -> Parser String
 seqLit c = char '"' *> indentSkipper *> manyTill (c <* indentSkipper) (char '"')
 
+stringLit :: Parser String
 stringLit = seqLit inChar
 
+byteStringLit :: Parser String
 byteStringLit = try (char 'b') *> seqLit inByte
 
+rawSeqLit :: ParsecT String Int Identity a -> Parser [a]
 rawSeqLit c = changeState (const ()) (const 0) $
   try (char 'r') *> (do
                        many (char '#' >> modifyState (1 +))
@@ -457,10 +494,13 @@ rawSeqLit c = changeState (const ()) (const 0) $
                        hashCount <- getState
                        manyTill c (try $ char '"' >> count hashCount (char '#')))
 
+rawStringLit :: Parser String
 rawStringLit = rawSeqLit anyChar
 
+rawByteStringLit :: Parser String
 rawByteStringLit = try (char 'b') *> rawSeqLit (satisfy isAscii)
 
+stringLiterals :: Parser TokenPos
 stringLiterals = choice . map (withPos . fmap Literal) $
   [ fmap ByteChar $ byte
   , fmap ByteString $ byteStringLit
@@ -470,6 +510,7 @@ stringLiterals = choice . map (withPos . fmap Literal) $
   , fmap UnicodeString $ rawStringLit
   ]
 
+intLit :: Int -> Parser Char -> Parser Literal
 intLit base digitLetters =
   do
     digits <- many1 $ (optional (char '_')) `around` digitLetters
@@ -477,14 +518,19 @@ intLit base digitLetters =
                 optionMaybe $ choice $ map (try . string . snd) integerSuffixTable
     return $ IntLit suffix $ toInteger $ stringToInt base digits
 
+decLit :: Parser Literal
 decLit = intLit 10 digit
 
+hexLit :: Parser Literal
 hexLit = intLit 16 $ satisfy isHexDigit
 
+octLit :: Parser Literal
 octLit = intLit 8 $ satisfy (`elem` ['0' .. '7'])
 
+binLit :: Parser Literal
 binLit = intLit 2 $ satisfy (`elem` ['0', '1'])
 
+intLits :: Parser Literal
 intLits = try (string "0x") *> hexLit
           <|> try (string "0o") *> octLit
           <|> try (string "0b") *> binLit
@@ -500,6 +546,7 @@ expPart =
                 then negate
                 else id) $ toInteger $ stringToInt 10 digits
 
+floatLit :: Parser Literal
 floatLit =
   do
     digits <- many1 $ (optional (char '_')) `around` digit
@@ -507,27 +554,28 @@ floatLit =
        try (char '.' <* lookAhead digit)
        digitsAfter <- many1 $ (optional (char '_')) `around` digit
        ex <- optionMaybe expPart
-       suffix <- (fmap . fmap) (backwardLookup floatSuffixeTable) $
-                   optionMaybe $ choice $ map (try . string . snd) floatSuffixeTable
+       suffix <- (fmap . fmap) (backwardLookup floatSuffixTable) $
+                   optionMaybe $ choice $ map (try . string . snd) floatSuffixTable
        num <- return $ digits ++ ['.'] ++ digitsAfter
-       num <- if ex == Nothing
-                then return num
-                else return (num ++ ['e'] ++ show (fromJust ex))
+       num' <- if ex == Nothing
+                 then return num
+                 else return (num ++ ['e'] ++ show (fromJust ex))
        return $ FloatLit suffix $ if suffix == Just F32
-                                    then Left $ read num
-                                    else Right $ read num
+                                    then Left $ read num'
+                                    else Right $ read num'
      <|> do
        try (char '.' <* notFollowedBy (satisfy isSymbolStart))
-       return $ FloatLit Nothing (Right $ read digits))
-    <|> do
-      ex <- expPart
-      suffix <- (fmap . fmap) (backwardLookup floatSuffixeTable) $
-                  optionMaybe $ choice $ map (try . string . snd) floatSuffixeTable
-      num <- return $ digits ++ ['e'] ++ show ex
-      return $ FloatLit suffix $ if suffix == Just F32
-                                   then Left $ read num
-                                   else Right $ read num
+       return $ FloatLit Nothing (Right $ read digits)
+     <|> do
+       ex <- expPart
+       suffix <- (fmap . fmap) (backwardLookup floatSuffixTable) $
+                   optionMaybe $ choice $ map (try . string . snd) floatSuffixTable
+       num <- return $ digits ++ ['e'] ++ show ex
+       return $ FloatLit suffix $ if suffix == Just F32
+                                    then Left $ read num
+                                    else Right $ read num)
 
+lifeTime :: Parser LifeTime
 lifeTime = do
              try $ char '\'' *> string "static"
              return StaticLife
@@ -535,8 +583,10 @@ lifeTime = do
              symb <- try $ char '\'' *> symbol <* notFollowedBy (char '\'')
              return $ DynamicLife symb
 
+parserize :: (a, String) -> Parser a
 parserize (val, str) = try $ string str *> return val
 
+combineTrivial :: (a -> Token) -> [(a, String)] -> Parser TokenPos
 combineTrivial constructor trivials = choice $ map (withPos . fmap constructor . parserize) trivials
 
 arbitraryToken :: Parser TokenPos

@@ -6,17 +6,17 @@ module ChangeState (changeState) where
 -- solution>.
 import           Text.Parsec
 
-changeState :: forall m s u v a. (Functor m, Monad m)
+changeState :: forall m s u v a. Monad m
                               => (u -> v)
                               -> (v -> u)
                               -> ParsecT s u m a
                               -> ParsecT s v m a
 changeState forward backward = mkPT . transform . runParsecT
   where
-    mapState :: forall u v. (u -> v) -> State s u -> State s v
+    mapState :: forall u' v'. (u' -> v') -> State s u' -> State s v'
     mapState f st = st { stateUser = f (stateUser st) }
 
-    mapReply :: forall u v. (u -> v) -> Reply s u a -> Reply s v a
+    mapReply :: forall u' v'. (u' -> v') -> Reply s u' a -> Reply s v' a
     mapReply f (Ok a st err) = Ok a (mapState f st) err
     mapReply _ (Error e) = Error e
 
