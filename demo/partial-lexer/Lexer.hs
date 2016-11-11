@@ -6,6 +6,7 @@ import Text.Parsec.Prim hiding (try)
 import Data.List (nub, sort)
 import Data.Char (isSpace, isAlpha, isDigit, digitToInt, isAscii, isHexDigit, chr, ord)
 import Data.Maybe (fromJust)
+import Data.Tuple (swap)
 import ChangeState
 
 
@@ -17,11 +18,17 @@ withPos p = flip (,) <$> getPosition <*> p
 data LifeTime = StaticLife | DynamicLife String
   deriving (Show, Eq)
 
-data IntSuffix = U8 | I8 | U16 | I16 | U32 | I32 | U64 | I64 | ISize | USize
+data IntSuffix = U8 | I8 | U16 | I16 | U32 | I32 | U64 | I64 | USize | ISize
   deriving (Show, Eq)
+
+integerSuffixTable
+  = [(U8, "u8"), (I8, "i8"), (U16, "u16"), (I16, "i16"), (U32, "u32"),
+     (I32, "i32"), (U64, "u64"), (I64, "i64"), (USize, "usize"), (ISize, "isize")]
 
 data FloatSuffix = F32 | F64
   deriving (Show, Eq)
+
+floatSuffixeTable = [(F32, "f32"), (F64, "f64")]
 
 data Literal = IntLit (Maybe IntSuffix) Integer
              | FloatLit (Maybe FloatSuffix) (Either Float Double)
@@ -45,12 +52,27 @@ data StructureSymbol
   | AtSign | Tilde | ModSep | Colon | Dollar | Question | LArrow | RArrow -- | Pound
   deriving (Show, Eq)
 
+structureSymbolTable
+  = [(Semicolon, ";"), (Comma, ","), (TripleDot, "..."), (DoubleDot, ".."),
+     (Dot, "."), (LParen, "("), (RParen, ")"), (LBrace, "{"), (RBrace, "}"),
+     (LBrack, "["), (RBrack, "]"), (AtSign, "@"){-, (Pound, "#")-}, (Tilde, "~"),
+     (ModSep, "::"), (Colon, ":"), (Dollar, "$"), (Question, "?"),
+     (LArrow, "<-"), (RArrow, "->")]
+
 data Operator
   = DoubleEq | FatArrow | EqSign | Neq | Not | Leq | Shl | Shleq | Less
   | Geq | Shr | Shreq | Greater | Minus | Minuseq | DoubleAnd | And
   | Andeq | DoubleOr | Or | Oreq | Plus | Pluseq | Star | Stareq | Slash
   | Slasheq | Caret | Careteq | Percent | Percenteq
   deriving (Show, Eq)
+
+operatorTable
+  = [(DoubleEq, "=="), (FatArrow, "=>"), (EqSign, "="), (Neq, "!="), (Not, "!"),
+     (Leq, "<="), (Shleq, "<<="), (Shl, "<<"), (Less, "<"), (Geq, ">="),
+     (Shreq, ">>="), (Shr, ">>"), (Greater, ">"), (Minuseq, "-="), (Minus, "-"),
+     (DoubleAnd, "&&"), (And, "&"), (DoubleOr, "||"), (Oreq, "|="), (Or, "|"),
+     (Pluseq, "+="), (Plus, "+"), (Stareq, "*="), (Star, "*"), (Slasheq, "/="),
+     (Slash, "/"), (Careteq, "^="), (Caret, "^"), (Percenteq, "%="), (Percent, "%")]
 
 data Token = Symbol String
            | Literal Literal
@@ -64,16 +86,23 @@ data Token = Symbol String
 
 data Keyword
   = Underscore | As | Box | Break | Const | Continue | Crate | Else | Enum
-  | Extern | False | Fn | For | If | Impl | In | Let | Loop | Match | Mod | Move
-  | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct | Trait
-  | True | Type | TypeOf | Unsafe | Use | Where | While
+  | Extern | FalseLit | Fn | For | If | Impl | In | Let | Loop | Match | Mod
+  | Move | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct
+  | Trait | TrueLit | Type | TypeOf | Unsafe | Use | Where | While
   deriving (Show, Eq)
 
-reservedNameList
-  = ["_", "as", "box", "break", "const", "continue", "crate", "else", "enum",
-  "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match",
-  "mod", "move", "mut", "priv", "proc", "pub", "ref", "return", "self", "static",
-  "struct", "trait", "true", "type", "typeof", "unsafe", "use", "where", "while"]
+keywordTable
+  = [(Underscore, "_"), (As, "as"), (Box, "break"), (Const, "const"), (Continue, "continue"),
+     (Crate, "crate"), (Else, "else"), (Enum, "enum"), (Extern, "extern"), (FalseLit, "false"),
+     (Fn, "fn"), (For, "for"), (If, "if"), (Impl, "impl"), (In, "in"), (Let, "let"),
+     (Loop, "loop"), (Match, "match"), (Mod, "mod"), (Move, "move"), (Mut, "mut"), (Priv, "priv"),
+     (Proc, "proc"), (Return, "return"), (Self, "self"), (Static, "static"), (Struct, "struct"),
+     (Trait, "trait"), (TrueLit, "true"), (Type, "type"), (TypeOf, "typeof"), (Use, "use"),
+     (Where, "where"), (While, "while")]
+
+forwardLookup table = fromJust . flip lookup table
+backwardLookup table = fromJust . flip lookup (map swap table)
+
 
 bom = string "\xef\xbb\xbf"
 
@@ -151,52 +180,10 @@ multiLineDocComment =
 
 docComment = oneLineDocComment <|> multiLineDocComment <?> ""
 
-reservedConvert :: String -> Keyword
-reservedConvert string = case string of
-  "_" -> Underscore
-  "as" -> As
-  "box" -> Box
-  "break" -> Break
-  "const" -> Const
-  "continue" -> Continue
-  "crate" -> Crate
-  "else" -> Else
-  "enum" -> Enum
-  "extern" -> Extern
-  "false" -> Falsum.False
-  "fn" -> Fn
-  "for" -> For
-  "if" -> If
-  "impl" -> Impl
-  "in" -> In
-  "let" -> Let
-  "loop" -> Loop
-  "match" -> Match
-  "mod" -> Mod
-  "move" -> Move
-  "mut" -> Mut
-  "priv" -> Priv
-  "proc" -> Proc
-  "pub" -> Pub
-  "ref" -> Ref
-  "return" -> Return
-  "self" -> Self
-  "static" -> Static
-  "struct" -> Struct
-  "trait" -> Trait
-  "true" -> Falsum.True
-  "type" -> Type
-  "typeof" -> TypeOf
-  "unsafe" -> Unsafe
-  "use" -> Use
-  "where" -> Where
-  "while" -> While
-
-reservedName = choice . map p $ sort reservedNameList
-  where p name = withPos $
-                   do n <- try $ string name
-                      notFollowedBy $ satisfy isSymbolLetter
-                      return $ Keyword $ reservedConvert n
+reservedName = choice . map keywordParser $ sort $ map snd keywordTable
+  where keywordParser name = withPos $ do n <- try $ string name
+                                          notFollowedBy $ satisfy isSymbolLetter
+                                          return $ Keyword $ backwardLookup keywordTable n
 
 attributeContent
   =  try (do ide <- spacesAround symbol
@@ -225,17 +212,6 @@ attribute =
      content <- attributeContent
      char ']'
      return $ CoupledAttribute (if start !! 1 == '!' then Inner else Outer) content
-
-
-{-lsq, rsq, lbr, rbr :: Parser TokenPos
-lpr = withPos $ char '(' >> return LParen
-rpr = withPos $ char ')' >> return RParen
-lsq = withPos $ char '[' >> return LBrack
-rsq = withPos $ char ']' >> return RBrack
-lbr = withPos $ char '{' >> return LBrace
-rbr = withPos $ char '}' >> return RBrace
-
-brackets = choice [lpr, rpr, lsq, rsq, lbr, rbr]-}
 
 charConvert c = case c of
   'n' -> '\n'
@@ -300,36 +276,17 @@ stringLiterals = choice . map (withPos . fmap Literal) $
   , fmap UnicodeString $ rawStringLit
   ]
 
-integerSuffixes = ["u8", "i8", "u16", "i16", "u32", "i32", "u64", "i64", "usize", "isize"]
-
-integerSuffixConvert suf = case suf of
-  "u8" -> U8
-  "i8" -> I8
-  "u16" -> U16
-  "i16" -> I16
-  "u32" -> U32
-  "i32" -> I32
-  "u64" -> U64
-  "i64" -> I64
-  "usize" -> USize
-  "isize" -> ISize
-
-floatSuffixes = ["f32", "f64"]
-
-floatSuffixConvert suf = case suf of
-  "f32" -> F32
-  "f64" -> F64
-
 intLit base digitLetters =
   do digits <- many1 $ (optional (char '_')) `around` digitLetters
-     suffix <- (fmap . fmap) integerSuffixConvert $ optionMaybe $ choice $ map (try . string) integerSuffixes
+     suffix <- (fmap . fmap) (backwardLookup integerSuffixTable) $
+                 optionMaybe $ choice $ map (try . string . snd) integerSuffixTable
      return $ IntLit suffix $ toInteger $ stringToInt base digits
 
 
 decLit = intLit 10 digit
 hexLit = intLit 16 $ satisfy isHexDigit
-octLit = intLit 8 $ satisfy (flip elem ['0'..'7'])
-binLit = intLit 2 $ satisfy (flip elem ['0', '1'])
+octLit = intLit 8 $ satisfy (`elem` ['0'..'7'])
+binLit = intLit 2 $ satisfy (`elem` ['0', '1'])
 
 intLits
   =   try (string "0x") *> hexLit
@@ -349,7 +306,8 @@ floatLit =
      (do try (char '.' <* lookAhead digit)
          digitsAfter <- many1 $ (optional (char '_')) `around` digit
          ex <- optionMaybe expPart
-         suffix <- (fmap . fmap) floatSuffixConvert $ optionMaybe $ choice $ map (try . string) floatSuffixes
+         suffix <- (fmap . fmap) (backwardLookup floatSuffixeTable) $
+                     optionMaybe $ choice $ map (try . string . snd) floatSuffixeTable
          num <- return $ digits ++ ['.'] ++ digitsAfter
          num <- if ex == Nothing then return num else return (num ++ ['e'] ++ show (fromJust ex))
          return $ FloatLit suffix $ if suffix == Just F32
@@ -358,7 +316,8 @@ floatLit =
       <|> do try (char '.' <* notFollowedBy (satisfy isSymbolStart))
              return $ FloatLit Nothing (Right $ read digits))
       <|> do ex <- expPart
-             suffix <- (fmap . fmap) floatSuffixConvert $ optionMaybe $ choice $ map (try . string) floatSuffixes
+             suffix <- (fmap . fmap)  (backwardLookup floatSuffixeTable) $
+                         optionMaybe $ choice $ map (try . string . snd) floatSuffixeTable
              num <- return $ digits ++ ['e'] ++ show ex
              return $ FloatLit suffix $ if suffix == Just F32
                then Left $ read num
@@ -369,14 +328,6 @@ lifeTime
          return StaticLife
   <|> do symb <- try $ char '\'' *> symbol <* notFollowedBy (char '\'')
          return $ DynamicLife symb
-
-syntax1 = [(Semicolon, ";"), (Comma, ","), (TripleDot, "..."), (DoubleDot, ".."), (Dot, "."), (LParen, "("), (RParen, ")"), (LBrace, "{"), (RBrace, "}"), (LBrack, "["), (RBrack, "]"), (AtSign, "@"){-, (Pound, "#")-}, (Tilde, "~"), (ModSep, "::"), (Colon, ":"), (Dollar, "$"), (Question, "?")]
-
-operators1 = [(DoubleEq, "=="), (FatArrow, "=>"), (EqSign, "="), (Neq, "!="), (Not, "!"), (Leq, "<="), (Shleq, "<<="), (Shl, "<<"), (Less, "<"), (Geq, ">="), (Shreq, ">>="), (Shr, ">>"), (Greater, ">")]
-
-syntax2 = [(LArrow, "<-"), (RArrow, "->")]
-
-operators2 = [(Minuseq, "-="), (Minus, "-"), (DoubleAnd, "&&"), (And, "&"), (DoubleOr, "||"), (Oreq, "|="), (Or, "|"), (Pluseq, "+="), (Plus, "+"), (Stareq, "*="), (Star, "*"), (Slasheq, "/="), (Slash, "/"), (Careteq, "^="), (Caret, "^"), (Percenteq, "%="), (Percent, "%")]
 
 parserize (val, str) = try $ string str *> return val
 combineTrivial constructor trivials = choice $ map (withPos . fmap constructor . parserize) trivials
@@ -389,10 +340,8 @@ arbitraryToken = choice
     , withPos $ fmap Symbol $ symbol
     , withPos $ docComment
     , withPos $ attribute
-    , combineTrivial StructSym syntax1
-    , combineTrivial Operator operators1
-    , combineTrivial StructSym syntax2
-    , combineTrivial Operator operators2
+    , combineTrivial StructSym structureSymbolTable
+    , combineTrivial Operator operatorTable
     , withPos $ fmap Literal $ try floatLit
     , withPos $ fmap Literal $ intLits
     ]
