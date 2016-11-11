@@ -266,10 +266,9 @@ keywordTable = [ (Underscore, "_")
                , (While, "while")
                ]
 
-{-
 forwardLookup :: Eq a => [(a, b)] -> a -> b
 forwardLookup table = fromJust . flip lookup table
--}
+
 backwardLookup :: Eq b => [(a, b)] -> b -> a
 backwardLookup table = fromJust . flip lookup (map swap table)
 
@@ -430,16 +429,15 @@ attribute =
                   else Outer)
                content
 
-charConvert :: Char -> Char
-charConvert c =
-  case c of
-    'n'  -> '\n'
-    'r'  -> '\r'
-    't'  -> '\t'
-    '\\' -> '\\'
-    '0'  -> '\0'
-    '\'' -> '\''
-    '"'  -> '"'
+charConvertTable :: [(Char, Char)]
+charConvertTable = [ ('n', '\n')
+                   , ('r', '\r')
+                   , ('t', '\t')
+                   , ('\\', '\\')
+                   , ('0', '\0')
+                   , ('\'', '\'')
+                   , ('"', '"')
+                   ]
 
 stringToInt :: Int -> String -> Int
 stringToInt base = foldl1 (\x y -> x * base + y) . map digitToInt
@@ -465,7 +463,8 @@ inByte :: Parser Char
 inByte = try (char '\\' *> char 'x') *> (do
                                            digits <- count 2 $ satisfy isHexDigit
                                            return $ chr . hexStringToInt $ digits)
-         <|> try (char '\\') *> fmap charConvert (oneOf ['n', 'r', 't', '\\', '0', '\'', '"'])
+         <|> try (char '\\') *> fmap (forwardLookup charConvertTable)
+                                  (oneOf . map fst $ charConvertTable)
          <|> satisfy isAscii
 
 character :: Parser Char
