@@ -39,10 +39,17 @@ data Attribute = Single String
                | AttributeList String [Attribute]
   deriving (Show, Eq)
 
-data StructureSymbol = Semicolon | Comma | TripleDot | DoubleDot | Dot | LParen | RParen | LBrack | RBrack | LBrace | RBrace | AtSign | Tilde | ModSep | Colon | Dollar | Question | LArrow | RArrow -- | Pound
+data StructureSymbol
+  = Semicolon | Comma | TripleDot | DoubleDot | Dot
+  | LParen | RParen | LBrack | RBrack | LBrace | RBrace
+  | AtSign | Tilde | ModSep | Colon | Dollar | Question | LArrow | RArrow -- | Pound
   deriving (Show, Eq)
 
-data Operator = DoubleEq | FatArrow | EqSign | Neq | Not | Leq | Shl | Shleq | Less | Geq | Shr | Shreq | Greater | Minus | Minuseq | DoubleAnd | And | Andeq | DoubleOr | Or | Oreq | Plus | Pluseq | Star | Stareq | Slash | Slasheq | Caret | Careteq | Percent | Percenteq
+data Operator
+  = DoubleEq | FatArrow | EqSign | Neq | Not | Leq | Shl | Shleq | Less
+  | Geq | Shr | Shreq | Greater | Minus | Minuseq | DoubleAnd | And
+  | Andeq | DoubleOr | Or | Oreq | Plus | Pluseq | Star | Stareq | Slash
+  | Slasheq | Caret | Careteq | Percent | Percenteq
   deriving (Show, Eq)
 
 data Token = Symbol String
@@ -55,9 +62,18 @@ data Token = Symbol String
            | CoupledAttribute Coupling Attribute
     deriving (Show, Eq)
 
-data Keyword = Underscore | As | Box | Break | Const | Continue | Crate | Else | Enum | Extern | False | Fn | For | If | Impl | In | Let | Loop | Match | Mod | Move | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct | Trait | True | Type | TypeOf | Unsafe | Use | Where | While deriving (Show, Eq)
-             
-reservedNameList = ["_", "as", "box", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "priv", "proc", "pub", "ref", "return", "self", "static", "struct", "trait", "true", "type", "typeof", "unsafe", "use", "where", "while"]
+data Keyword
+  = Underscore | As | Box | Break | Const | Continue | Crate | Else | Enum
+  | Extern | False | Fn | For | If | Impl | In | Let | Loop | Match | Mod | Move
+  | Mut | Priv | Proc | Pub | Ref | Return | Self | Static | Struct | Trait
+  | True | Type | TypeOf | Unsafe | Use | Where | While
+  deriving (Show, Eq)
+
+reservedNameList
+  = ["_", "as", "box", "break", "const", "continue", "crate", "else", "enum",
+  "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match",
+  "mod", "move", "mut", "priv", "proc", "pub", "ref", "return", "self", "static",
+  "struct", "trait", "true", "type", "typeof", "unsafe", "use", "where", "while"]
 
 bom = string "\xef\xbb\xbf"
 
@@ -123,7 +139,7 @@ multiLineComment =
 
 whiteSpaces = skipMany (simpleSpaces1 <|> oneLineComment <|> multiLineComment <?> "")
 
-oneLineDocComment = 
+oneLineDocComment =
   do start <- lineDocStart
      content <- many $ satisfy (/= '\n')
      return $ CoupledDoc (if start !! 2 == '!' then Inner else Outer) content
@@ -177,7 +193,7 @@ reservedConvert string = case string of
   "while" -> While
 
 reservedName = choice . map p $ sort reservedNameList
-  where p name = withPos $ 
+  where p name = withPos $
                    do n <- try $ string name
                       notFollowedBy $ satisfy isSymbolLetter
                       return $ Keyword $ reservedConvert n
