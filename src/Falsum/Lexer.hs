@@ -1,4 +1,4 @@
-module Falsum.Lexer (tokenize, tokenizeTest) where
+module Falsum.Lexer where
 
 import           ChangeState
 import           Control.Applicative           ((*>), (<$>), (<*), (<*>))
