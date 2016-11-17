@@ -8,7 +8,7 @@ import           Text.Parsec                         hiding (anyToken, parse,
 import qualified Text.Parsec                         as P
 import           Text.ParserCombinators.Parsec.Error
 
-type TokenParser a = Parsec [TokenPos] () a
+type Parser a = Parsec [TokenPos] () a
 
 data AST = Token [Token]
   deriving (Show, Eq)
@@ -17,16 +17,16 @@ advance :: SourcePos -> t -> [TokenPos] -> SourcePos
 advance _ _ ((_, pos):_) = pos
 advance pos _ [] = pos
 
-satisfy' :: (TokenPos -> Bool) -> TokenParser Token
+satisfy' :: (TokenPos -> Bool) -> Parser Token
 satisfy' f = tokenPrim show advance
                (\c -> if f c
                         then Just (fst c)
                         else Nothing)
 
-satisfy :: (Token -> Bool) -> TokenParser Token
+satisfy :: (Token -> Bool) -> Parser Token
 satisfy test = satisfy' $ test . fst
 
-anyToken :: TokenParser Token
+anyToken :: Parser Token
 anyToken = choice . map satisfy $ [ isSymbol
                                   , isLiteral
                                   , isLifeTime
@@ -37,7 +37,7 @@ anyToken = choice . map satisfy $ [ isSymbol
                                   , isCoupledAttribute
                                   ]
 
-parser :: TokenParser AST
+parser :: Parser AST
 parser = fmap Token $ many anyToken
 
 parseTest :: [TokenPos] -> IO ()
