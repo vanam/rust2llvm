@@ -33,29 +33,38 @@ integer :: Parser Integer
 integer = Token.integer lexer
 
 -- semi = Token.semi lexer whiteSpace = Token.whiteSpace lexer
-binary :: String -> (a -> a -> a) -> Assoc -> Operator String () Identity a
-binary name fun assoc = flip Infix assoc $ reservedOp name *> pure fun
+{-data Term a = Term a
+            | NestedExpr a
+            deriving (Show)-}
+data Expr a = Term a
+            | NestedExpr (Expr a)
+            | Unary String (Expr a)
+            | Binary String (Expr a) (Expr a)
+  deriving (Show)
 
-prefix :: String -> (a -> a) -> Operator String () Identity a
-prefix name fun = Prefix $ reservedOp name *> pure fun
+binary :: String -> (String -> a -> a -> a) -> Assoc -> Operator String () Identity a
+binary name con assoc = flip Infix assoc $ reservedOp name *> pure (con name)
 
-postfix :: String -> (a -> a) -> Operator String () Identity a
-postfix name fun = Postfix $ reservedOp name *> pure fun
+prefix :: String -> (String -> a -> a) -> Operator String () Identity a
+prefix name con = Prefix $ reservedOp name *> pure (con name)
 
-table :: [[Operator String () Identity Integer]]
-table = [ [prefix "-" negate, prefix "+" id]
-        , [postfix "++" (+ 1)]
-        , [binary "*" (*) AssocLeft, binary "/" (div) AssocLeft]
-        , [binary "+" (+) AssocLeft, binary "-" (-) AssocLeft]
+postfix :: String -> (String -> a -> a) -> Operator String () Identity a
+postfix name con = Postfix $ reservedOp name *> pure (con name)
+
+table :: [[Operator String () Identity (Expr a)]]
+table = [ [prefix "-" Unary, (Prefix $ reservedOp "+" *> pure id)]
+        , [postfix "++" Unary]
+        , [binary "*" Binary AssocLeft, binary "/" Binary AssocLeft]
+        , [binary "+" Binary AssocLeft, binary "-" Binary AssocLeft]
         ]
 
-expr :: Parser Integer
+expr :: Parser (Expr Integer)
 expr = buildExpressionParser table term
        <?> "expression"
 
-term :: Parser Integer
-term = parens expr
-       <|> integer
+term :: Parser (Expr Integer)
+term = fmap NestedExpr (parens expr)
+       <|> fmap Term integer
            <?> "simple expression"
 
 main :: IO ()
