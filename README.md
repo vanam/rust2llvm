@@ -57,3 +57,67 @@ and run the formatting itself:
 ```
 stack exec hfmt -- -w
 ```
+
+---
+
+# LLVM
+
+## Variables
+
+* Define local integer variable 'a': `%a = alloca i32`
+* Set local integer value 26 to variable 'a': `store i32 26, i32* %a, align 4`
+* Set global integer variable 'a' with value 7 `@a = global i32 7, align 4`
+
+Other variable types are defined in similar fashion.
+
+## Registers
+
+We have infinite number of registers.
+
+* Load integer value from variable 'a' to register 0: `%0 = load i32, i32* %a, align 4`
+* Store integer value from register 0 to variable 'a': `store i32 %0, i32* %a, align 4`
+
+## Functions
+
+### Function attributes
+
+See [Function Attributes](http://llvm.org/docs/LangRef.html#fnattrs).
+
+`attributes #0 = { ... }`
+
+### Without return value
+
+Function takes one integer parameter 'a' and function attributes #0.
+
+```
+define void @foo(i32 %a) #0 {
+  ...
+  ret void
+}
+```
+
+### With return value
+
+Function takes two integer parameters 'a' and 'b' and function attributes #0 and returns value stored in register 6.
+
+```
+define i32 @foo(i32 %a, i32 %b) #0 {
+  ...
+  ret i32 %6
+}
+```
+
+### Main function
+```
+define i32 @main() #0 {
+  ...
+  ret i32 0
+}
+```
+or
+```
+define i32 @main(i32 %argc, i8** %argv) #0 {
+  ...
+  ret i32 0
+}
+```
