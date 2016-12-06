@@ -379,7 +379,90 @@ TODO
 
 ## Conditions
 
-TODO
+### Simple condition
+
+```Rust
+if  <condition> {
+  ...
+}
+```
+
+```LLVM
+  ... <condition> ...
+  br i1 %1, label %then-block-18-, label %next-block
+
+then-block-18-:                                   ; preds = %entry-block
+  ...                                             ; then block
+  br label %next-block
+
+next-block:                                       ; preds = %entry-block, %then-block-18-
+  ...                                             ; code after if
+```
+
+### Full condition
+
+```Rust
+if <condition> {
+  ...
+} else {
+  ...
+}
+```
+
+```LLVM
+  ... <condition> ...
+  br i1 %1, label %then-block-18-, label %else-block
+
+then-block-18-:                                   ; preds = %entry-block
+  ...                                             ; then block
+  br label %join
+
+else-block:                                       ; preds = %entry-block
+  ...                                             ; else block
+  br label %join
+
+join:                                             ; preds = %else-block, %then-block-18-
+  ...                                             ; code after if
+```
+
+### Multiple conditions
+
+```Rust
+if <condition 1> {
+  ...
+} else if <condition 2> {
+  ...
+} else {
+  ...
+}
+```
+
+```LLVM
+  ... <condition 1> ...
+  br i1 %1, label %then-block-18-, label %else-block
+
+then-block-18-:                                   ; preds = %entry-block
+  ...                                             ; block if first condition
+  br label %join3
+
+else-block:                                       ; preds = %entry-block
+  ... <condition 2> ...
+  br i1 %3, label %then-block-27-, label %else-block2
+
+then-block-27-:                                   ; preds = %else-block
+  ...                                             ; block if second condition
+  br label %join
+
+else-block2:                                      ; preds = %else-block
+  ...                                             ; else block
+  br label %join
+
+join:                                             ; preds = %else-block2, %then-block-27-
+  br label %join3
+
+join3:                                            ; preds = %join, %then-block-18-
+  ...                                             ; code after if
+```
 
 ### Operators
 
@@ -411,9 +494,22 @@ clean_ast_9_:                                     ; preds = %loop_body
 
 ### While
 
-TODO
+```LLVM
+  ...
+  br label %while_cond                            ; Begin loop
 
+while_exit:                                       ; preds = %while_cond
+  ...                                             ; after loop
+  ret void                                        ; return something
 
+while_cond:                                       ; preds = %while_body, %entry-block
+  ... <condition here> ...
+  br i1 %1, label %while_body, label %while_exit
+
+while_body:                                       ; preds = %while_cond
+  ...                                             ; do something in loop
+  br label %while_cond
+```
 
 ## Issues
 - How to represent result? As return value? Print?
