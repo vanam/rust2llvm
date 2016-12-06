@@ -138,7 +138,93 @@ store i8 %1, i8* %a, align 1
 
 ## Arrays
 
-TODO
+### A list with each element
+
+```Rust
+let mut array: [i32; 3] = [0, 1, 2];
+```
+
+translates to
+
+```LLVM
+...
+@const2754 = internal unnamed_addr constant [3 x i32] [i32 0, i32 1, i32 2], align 4
+...
+
+  ...                                                          ; Inside function
+  %array = alloca [3 x i32]
+  %0 = bitcast [3 x i32]* %array to i8*
+  call void @llvm.memcpy.p0i8.p0i8.i64(i8* %0, i8* bitcast ([3 x i32]* @const2754 to i8*), i64 12, i32 4, i1 false)
+  ...
+
+...
+; Function Attrs: nounwind
+declare void @llvm.memcpy.p0i8.p0i8.i64(i8* nocapture, i8* nocapture readonly, i64, i32, i1) #1
+attributes #1 = { nounwind }
+...
+```
+
+
+### A repeat expression
+
+```Rust
+let mut array: [i32; 3] = [-1; 3];
+```
+
+translates to
+
+```LLVM
+...
+@const2753 = internal unnamed_addr constant i32 -1, align 4
+...
+
+entry-block:
+  ...                                             ; Inside function
+  %array = alloca [3 x i32]
+  %0 = getelementptr inbounds [3 x i32], [3 x i32]* %array, i32 0, i32 0
+  br label %expr_repeat
+
+expr_repeat:                                      ; preds = %expr_repeat, %entry-block
+  %1 = phi i64 [ 0, %entry-block ], [ %3, %expr_repeat ]
+  %2 = getelementptr inbounds i32, i32* %0, i64 %1
+  store i32 -1, i32* %2, align 4
+  %3 = add i64 %1, 1
+  %4 = icmp ult i64 %3, 3
+  br i1 %4, label %expr_repeat, label %"expr_repeat: next"
+
+"expr_repeat: next":                              ; preds = %expr_repeat
+  ...                                             ; The rest of the program
+
+...
+```
+
+### Address index
+```Rust
+array[1] = -3;
+```
+
+translates to
+
+```LLVM
+%5 = getelementptr inbounds [3 x i32], [3 x i32]* %array, i32 0, i32 0
+%7 = getelementptr inbounds i32, i32* %5, i64 1
+store i32 -3, i32* %7, align 4
+```
+
+and
+
+```Rust
+a = array[1];
+```
+
+translates to
+
+```LLVM
+%5 = getelementptr inbounds [3 x i32], [3 x i32]* %array, i32 0, i32 0
+%7 = getelementptr inbounds i32, i32* %5, i64 1
+%8 = load i32, i32* %7, align 4
+store i32 %8, i32* %a, align 4
+```
 
 ## Functions
 
