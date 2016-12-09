@@ -363,6 +363,8 @@ For integer typed variables.
 %3 = or i32 %1, %2                                                        ; or |
 %3 = xor i32 %1, %2                                                      ; xor ^
 %3 = xor i32 %1, -1                                                 ; negation !
+%3 = shr i32 %1, %2                                              ; shift left <<
+%3 = ashr i32 %1, %2                                 ; arithmetic shift right >>
 ```
 
 ### Lazy boolean operators
