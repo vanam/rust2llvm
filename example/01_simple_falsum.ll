@@ -35,6 +35,7 @@ define i32 @main() #0 {
 ; uwtable - This attribute indicates that the ABI being targeted requires that an unwind table entry be produced for this function even if we can show that no exceptions passes by it. This is normally the case for the ELF x86-64 abi, but it can be disabled for some compilation units.
 attributes #0 = { nounwind uwtable }
 
+; Compiler identificator
 !llvm.ident = !{!0}
 
 !0 = !{!"falsum version 0.1"}
