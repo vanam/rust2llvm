@@ -35,12 +35,12 @@ data BExpr = Blit Bool
            | BBinary BOp BExpr BExpr
            | IRBinary ROp IExpr IExpr
            | FRBinary ROp FExpr FExpr
-           | BVal Symbol
+           | BVar Symbol
            | BCall Symbol [Expr]
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
-           | Fvar Symbol
+           | IVar Symbol
            | INeg IExpr
            | IBinary IOp IExpr IExpr
            | ICall Symbol [Expr]
