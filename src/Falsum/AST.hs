@@ -37,7 +37,7 @@ data BExpr = Blit Bool
            | FRBinary ROp FExpr FExpr
            | BVar Symbol
            | BCall Symbol [Expr]
-           | BAssign LValue
+           | BAssign LValue BExpr
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
@@ -45,6 +45,7 @@ data IExpr = ILit Integer
            | INeg IExpr
            | IBinary IOp IExpr IExpr
            | ICall Symbol [Expr]
+           | IAssign LValue IExpr
   deriving (Show, Eq, Ord)
 
 data FExpr = FLit Double
@@ -52,6 +53,7 @@ data FExpr = FLit Double
            | FNeg FExpr
            | FBinary FOp FExpr FExpr
            | FCall Symbol [Expr]
+           | FAssign LValue FExpr
   deriving (Show, Eq, Ord)
 
 data BOp = BAnd
@@ -64,6 +66,9 @@ data IOp = IPlus
          | IMult
          | IDiv
          | IMod
+         | IAnd
+         | IOr
+         | IXor
   deriving (Show, Eq, Ord)
 
 data FOp = FPlus
