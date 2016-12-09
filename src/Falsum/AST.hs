@@ -37,6 +37,7 @@ data BExpr = Blit Bool
            | FRBinary ROp FExpr FExpr
            | BVar Symbol
            | BCall Symbol [Expr]
+           | BAssign LValue
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
@@ -92,10 +93,19 @@ data Symbol = VarSymbol String ValueType
 
 data ValueType = Int
                | Real
-               | Bool -- Array zatim nee
+               | Bool
+               | ArrayBool
+               | ArrayInt
+               | ArrayReal
   deriving (Show, Eq, Ord)
 
 data Value = IntVal Int
            | RealVal Float
            | BoolVal Bool
+  deriving (Show, Eq, Ord)
+
+data LValue = LValue Symbol
+            | BAccess Symbol IExpr
+            | IAccess Symbol IExpr
+            | FAccess Symbol IExpr
   deriving (Show, Eq, Ord)
