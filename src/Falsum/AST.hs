@@ -79,7 +79,7 @@ data ROp = Less
          | NotEqual
   deriving (Show, Eq, Ord)
 
-data State = State [Scope]
+data ParseState = ParseState [Scope]
   deriving (Show, Eq, Ord)
 
 data Scope = Scope [Symbol]
