@@ -1,0 +1,101 @@
+module Falsum.AST where
+
+data Program = Program [ConstLet] [VarLet] [FnLet] FnLet
+  deriving (Show, Eq, Ord)
+
+data FnLet = FnLet Symbol [Symbol] [Stmt]
+  deriving (Show, Eq, Ord)
+
+data ConstLet = ConstLet Symbol Expr
+  deriving (Show, Eq, Ord)
+
+data VarLet = VarLet Symbol Expr
+  deriving (Show, Eq, Ord)
+
+data Let = ConstLetLet ConstLet
+         | VarLetLet VarLet
+         | FnLetLet FnLet
+  deriving (Show, Eq, Ord)
+
+data Stmt = ConstLetStmt ConstLet
+          | VarLetStmt VarLet
+          | Loop [Stmt]
+          | While BExpr [Stmt]
+          | Expr Expr
+  deriving (Show, Eq, Ord)
+
+data Expr = BExpr BExpr
+          | IExpr IExpr
+          | FExpr FExpr
+          | If BExpr [Stmt] [Stmt]
+  deriving (Show, Eq, Ord)
+
+data BExpr = Blit Bool
+           | Not BExpr
+           | BBinary BOp BExpr BExpr
+           | IRBinary ROp IExpr IExpr
+           | FRBinary ROp FExpr FExpr
+           | BVal Symbol
+           | BCall Symbol [Expr]
+  deriving (Show, Eq, Ord)
+
+data IExpr = ILit Integer
+           | Fvar Symbol
+           | INeg IExpr
+           | IBinary IOp IExpr IExpr
+           | ICall Symbol [Expr]
+  deriving (Show, Eq, Ord)
+
+data FExpr = FLit Double
+           | FVar Symbol
+           | FNeg FExpr
+           | FBinary FOp FExpr FExpr
+           | FCall Symbol [Expr]
+  deriving (Show, Eq, Ord)
+
+data BOp = BAnd
+         | BOr
+         | BXor
+  deriving (Show, Eq, Ord)
+
+data IOp = IPlus
+         | IMinus
+         | IMult
+         | IDiv
+         | IMod
+  deriving (Show, Eq, Ord)
+
+data FOp = FPlus
+         | FMinus
+         | FMult
+         | FDiv
+  deriving (Show, Eq, Ord)
+
+data ROp = Less
+         | LessEqual
+         | Greater
+         | GreaterEqual
+         | Equal
+         | NotEqual
+  deriving (Show, Eq, Ord)
+
+data ParseState = ParseState [Scope]
+  deriving (Show, Eq, Ord)
+
+data Scope = Scope [Symbol]
+  deriving (Show, Eq, Ord)
+
+data Symbol = VarSymbol String ValueType
+            | FnSymbol String [ValueType] (Maybe ValueType) -- return přes maybe?
+            | ConstSymbol String ValueType Value -- const nakonec takhle?
+  deriving (Show, Eq, Ord)
+
+data ValueType = Int
+               | Real
+               | Bool -- Array zatim nee
+  deriving (Show, Eq, Ord)
+
+data Value = IntVal Int
+           | RealVal Float
+           | BoolVal Bool
+  deriving (Show, Eq, Ord)

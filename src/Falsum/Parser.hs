@@ -1,6 +1,7 @@
 module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Parsec) where
 
 import           Data.Bifunctor
+import           Falsum.AST
 import           Falsum.Lexer
 import           Falsum.TokenTest
 import           Text.Parsec                         hiding (anyToken, parse,
@@ -12,6 +13,24 @@ type Parser a = Parsec [TokenPos] () a
 
 data AST = Token [Token]
   deriving (Show, Eq)
+
+lookupSymbol :: ParseState -> String -> Maybe Symbol
+lookupSymbol (ParseState []) _ = Nothing
+lookupSymbol (ParseState (scope:scopes)) ident =
+  let search (Scope []) _ = Nothing
+      search (Scope (sym:syms)) i
+        | symName == i = Just sym
+        | otherwise = search (Scope syms) i
+        where
+          symName =
+                     case sym of
+                       VarSymbol name _     -> name
+                       ConstSymbol name _ _ -> name
+                       FnSymbol name _ _    -> name
+      maybeSym = search scope ident
+  in case maybeSym of
+    Nothing -> lookupSymbol (ParseState scopes) ident
+    _       -> maybeSym
 
 advance :: SourcePos -> t -> [TokenPos] -> SourcePos
 advance _ _ ((_, pos):_) = pos
