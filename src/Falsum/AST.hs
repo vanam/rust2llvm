@@ -1,12 +1,20 @@
-data Program = Program [ConstLet] [VarlLet] [FnLet] FnLet
+module Falsum.AST where
+
+data Program = Program [ConstLet] [VarLet] [FnLet] FnLet
   deriving (Show, Eq, Ord)
 
-data FnLet = FnLet Symbol [Symobl] [Stmt]
+data FnLet = FnLet Symbol [Symbol] [Stmt]
   deriving (Show, Eq, Ord)
 
-data Let = ConstLet ConstLet
-         | VarLet VarLet
-         | FnLet FnLet
+data ConstLet = ConstLet Symbol Expr
+  deriving (Show, Eq, Ord)
+
+data VarLet = VarLet Symbol Expr
+  deriving (Show, Eq, Ord)
+
+data Let = ConstLetLet ConstLet
+         | VarLetLet VarLet
+         | FnLetLet FnLet
   deriving (Show, Eq, Ord)
 
 data Stmt = ConstLetStmt ConstLet
@@ -16,7 +24,7 @@ data Stmt = ConstLetStmt ConstLet
           | Expr Expr
   deriving (Show, Eq, Ord)
 
-data Expr = BExpr Bexpr
+data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
           | If BExpr [Stmt] [Stmt]
@@ -32,16 +40,22 @@ data BExpr = Blit Bool
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
-           | Fvar Sysmbol
+           | Fvar Symbol
            | INeg IExpr
            | IBinary IOp IExpr IExpr
            | ICall Symbol [Expr]
   deriving (Show, Eq, Ord)
 
-data FExpr = FLit Dboule
-           | FVar Symbol FNeg FExpr
+data FExpr = FLit Double
+           | FVar Symbol
+           | FNeg FExpr
            | FBinary FOp FExpr FExpr
            | FCall Symbol [Expr]
+  deriving (Show, Eq, Ord)
+
+data BOp = BAnd
+         | BOr
+         | BXor
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus
@@ -51,10 +65,18 @@ data IOp = IPlus
          | IMod
   deriving (Show, Eq, Ord)
 
-data FOp = IPlus
-         | IMinus
-         | IMult
-         | IDiv
+data FOp = FPlus
+         | FMinus
+         | FMult
+         | FDiv
+  deriving (Show, Eq, Ord)
+
+data ROp = Less
+         | LessEqual
+         | Greater
+         | GreaterEqual
+         | Equal
+         | NotEqual
   deriving (Show, Eq, Ord)
 
 data State = State [Scope]
