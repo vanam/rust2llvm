@@ -5,8 +5,8 @@ packages:
 
 extra-deps:
 - stylish-haskell-0.5.17.0
-- llvm-general-3.5.1.0
-- llvm-general-pure-3.5.0.0
+- llvm-general-3.5.1.2
+- llvm-general-pure-3.5.1.0
 
 flags: {}
 

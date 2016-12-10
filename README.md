@@ -6,6 +6,7 @@ This project aims to create educational compiler from [Rust](rust-lang.org) lang
 
 * [Haskell](https://www.haskell.org/) - `sudo apt-get install haskell-platform`
 * [clang](http://clang.llvm.org/) - `sudo apt-get install clang`
+* llvm-3.5 - `sudo apt-get install llvm-3.5 libedit-dev`
 
 ## How to compile and run programs in LLVM source inputs
 
