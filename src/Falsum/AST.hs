@@ -92,7 +92,7 @@ data Scope = Scope [Symbol]
   deriving (Show, Eq, Ord)
 
 data Symbol = VarSymbol String ValueType
-            | FnSymbol String [ValueType] (Maybe ValueType) -- return přes maybe?
+            | FnSymbol String (Maybe ValueType) -- return přes maybe?
             | ConstSymbol String ValueType Value -- const nakonec takhle?
   deriving (Show, Eq, Ord)
 
