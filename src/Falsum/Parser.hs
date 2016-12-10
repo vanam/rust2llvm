@@ -34,7 +34,7 @@ lookupSymbol (ParseState (scope:scopes)) ident =
 
 advance :: SourcePos -> t -> [TokenPos] -> SourcePos
 advance _ _ ((_, pos):_) = pos
-advance pos _ [] = pos
+advance pos _ []         = pos
 
 satisfy' :: (TokenPos -> Bool) -> Parser Token
 satisfy' f = tokenPrim show advance
@@ -46,16 +46,13 @@ satisfy :: (Token -> Bool) -> Parser Token
 satisfy test = satisfy' $ test . fst
 
 anyToken :: Parser Token
-anyToken = choice . map satisfy $ [ isSymbol
-                                  , isLiteral
+anyToken = choice . map satisfy $ [ isLiteral
                                   , isLifeTime
                                   , isKeyword
                                   , isStructSym
                                   , isOperator
-                                  , isCoupledDoc
-                                  , isCoupledAttribute
-                                  , isIntLit
-                                  , isFloatLit
+                                  , isAnyCoupledDoc
+                                  , isAnyCoupledAttribute
                                   , isAnySymbol
                                   , isAnyLiteral
                                   , isAnyLifeTime
@@ -64,7 +61,6 @@ anyToken = choice . map satisfy $ [ isSymbol
                                   , isAnyOperator
                                   , isAnyCoupledDoc
                                   , isAnyCoupledAttribute
-                                  , isAnyIntLit
                                   ]
 
 astTest :: Show a => Parser a -> String -> IO ()
@@ -94,15 +90,15 @@ tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
 letStmt :: Parser VarLet
 letStmt =
   do
-    satisfy isLet
-    optional isMut
-    varName <- satisfy isSymbol
-    satisfy isSymbol Colon
-    varType <- choice (satisfy isIntLit IntSuffix) (satisfy isFloatLit FloatSuffix)
-    satisfy isSymbol EqSign
+    satisfy isKeyword Let
+    optional isKeyword Mut
+    varName <- satisfy isAnySymbol
+    satisfy isStructSymbol Colon
+    varType <- choice (satisfy isLiteral IntSuffix) (satisfy isFloatLit FloatSuffix)
+    satisfy isStructSymbol EqSign
     varValue <- choice (satisfy isLiteral) parseIExpr
-    satisfy isSymbol Semicolon
+    satisfy isStructSymbol Semicolon
     return $ VarLet VarSymbol (varName varValue) varValue
 
-parseIExpr :: Parser
+parseIExpr :: Parser IExpr
 parseIExpr = undefined -- @TODO
