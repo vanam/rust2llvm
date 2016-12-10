@@ -54,19 +54,17 @@ anyToken = choice . map satisfy $ [ isSymbol
                                   , isOperator
                                   , isCoupledDoc
                                   , isCoupledAttribute
-                                  , isColon
-                                  , isSemicolon
-                                  , isLet
-                                  , isConst
-                                  , isFn
-                                  , isMut
-                                  , isFor
-                                  , isLoop
-                                  , isIf
-                                  , isElse
-                                  , isIntSuffix
-                                  , isFloatSuffix
-                                  , isEqualSign
+                                  , isIntLit
+                                  , isFloatLit
+                                  , isAnySymbol
+                                  , isAnyLiteral
+                                  , isAnyLifeTime
+                                  , isAnyKeyword
+                                  , isAnyStructSym
+                                  , isAnyOperator
+                                  , isAnyCoupledDoc
+                                  , isAnyCoupledAttribute
+                                  , isAnyIntLit
                                   ]
 
 astTest :: Show a => Parser a -> String -> IO ()
@@ -99,12 +97,12 @@ letStmt =
     satisfy isLet
     optional isMut
     varName <- satisfy isSymbol
-    satisfy isColon
-    varType <- choice (satisfy isIntSuffix) (satisfy isFloatSuffix)
-    satisfy isEqualSign
+    satisfy isSymbol Colon
+    varType <- choice (satisfy isIntLit IntSuffix) (satisfy isFloatLit FloatSuffix)
+    satisfy isSymbol EqSign
     varValue <- choice (satisfy isLiteral) parseIExpr
-    satisfy isSemicolon
+    satisfy isSymbol Semicolon
     return $ VarLet VarSymbol (varName varValue) varValue
 
 parseIExpr :: Parser
-parseIExpr = neco -- @TODO
+parseIExpr = undefined -- @TODO

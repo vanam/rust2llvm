@@ -4,86 +4,70 @@ module Falsum.TokenTest where
 -- <http://stackoverflow.com/a/6089121>, but we would confuse the linter in Atom.
 import           Falsum.Lexer
 
-isSymbol :: Token -> Bool
-isSymbol (Symbol _) = True
-isSymbol _ = False
+isSymbol :: Symbol -> Token -> Bool
+isSymbol s (Symbol x) = s == x
+isSymbol _ _ = False
 
-isLiteral :: Token -> Bool
-isLiteral (Literal _) = True
-isLiteral _ = False
+isLiteral :: Literal -> Token -> Bool
+isLiteral l (Literal x) = l == x
+isLiteral _ _ = False
 
-isLifeTime :: Token -> Bool
-isLifeTime (LifeTime _) = True
-isLifeTime _ = False
+isLifeTime :: LifeTime -> Token -> Bool
+isLifeTime lt (LifeTime x) = lt == x
+isLifeTime _ _ = False
 
-isKeyword :: Token -> Bool
-isKeyword (Keyword _) = True
-isKeyword _ = False
+isKeyword :: Keyword -> Token -> Bool
+isKeyword k (Keyword x) = k == x
+isKeyword _ _ = False
 
-isStructSym :: Token -> Bool
-isStructSym (StructSym _) = True
-isStructSym _ = False
+isStructSym :: SturctSym -> Token -> Bool
+isStructSym s (StructSym x) = s == x
+isStructSym _ _ = False
 
-isOperator :: Token -> Bool
-isOperator (Operator _) = True
-isOperator _ = False
+isOperator :: Operator -> Token -> Bool
+isOperator o (Operator x) = o == x
+isOperator _ _ = False
 
-isCoupledDoc :: Token -> Bool
+isIntLit :: IntLit -> Token -> Bool
+isIntSuffix i (IntLit x _) = i == x
+isIntSuffix _ _ = False
+
+isFloatLit :: IntLit -> Token -> Bool
+isIntSuffix i (FloatLit x _) = i == x
+isIntSuffix _ _ = False
+
+isAnySymbol :: Token -> Bool
+isAnySymbol (Symbol _) = True
+isAnySymbol _ = False
+
+isAnyLiteral :: Token -> Bool
+isAnyLiteral (Literal _) = True
+isAnyLiteral _ = False
+
+isAnyLifeTime :: Token -> Bool
+isAnyLifeTime (LifeTime _) = True
+isAnyLifeTime _ = False
+
+isAnyKeyword :: Token -> Bool
+isAnyKeyword (Keyword _) = True
+isAnyKeyword _ = False
+
+isAnyStructSym :: Token -> Bool
+isAnyStructSym (StructSym _) = True
+isAnyStructSym _ = False
+
+isAnyOperator :: Token -> Bool
+isAnyOperator (Operator _) = True
+isAnyOperator _ = False
+
+isAnyCoupledDoc :: Token -> Bool
 isCoupledDoc (CoupledDoc _ _) = True
 isCoupledDoc _ = False
 
-isCoupledAttribute :: Token -> Bool
+isAnyCoupledAttribute :: Token -> Bool
 isCoupledAttribute (CoupledAttribute _ _) = True
 isCoupledAttribute _ = False
 
-isColon :: Token -> Bool
-isColon (StructSym Colon) = True
-isColon _ = False
-
-isSemicolon :: Token -> Bool
-isSemicolon (StructSym Semicolon) = True
-isSemicolon _ = False
-
-isLet :: Token -> Bool
-isLet (Keyword Let) = True
-isLet _ = False
-
-isConst :: Token -> Bool
-isConst (Keyword Const) = True
-isConst _ = False
-
-isFn :: Token -> Bool
-isFn (Keyword Fn) = True
-isFn _ = False
-
-isMut :: Token -> Bool
-isMut (Keyword Mut) = True
-isMut _ = False
-
-isFor :: Token -> Bool
-isFor (Keyword For) = True
-isFor _ = False
-
-isLoop :: Token -> Bool
-isLoop (Keyword Loop) = True
-isLoop _ = False
-
-isIf :: Token -> Bool
-isIf (Keyword If) = True
-isIf _ = False
-
-isElse :: Token -> Bool
-isElse (Keyword Else) = True
-isElse _ = False
-
-isIntSuffix :: Token -> Bool
-isIntSuffix (IntLit IntSuffix _) = True
+isAnyIntLit :: Token -> Bool
+isIntSuffix (IntLit _ _) = True
 isIntSuffix _ = False
-
-isFloatSuffix :: Token -> Bool
-isFloatSuffix (IntLit FloatSuffix _) = True
-isFloatSuffix _ = False
-
-isEqualSign :: Token -> Bool
-isEqualSign (Operator EqSign) = True
-isEqualSign _ = False
