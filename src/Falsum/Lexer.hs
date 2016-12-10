@@ -592,7 +592,7 @@ arbitraryToken :: Parser TokenPos
 arbitraryToken = choice
                    [ try reservedName
                    , withPos $ fmap LifeTime $ lifeTime
-                   , stringLiterals
+                   , try stringLiterals
                    , withPos $ fmap Symbol $ symbol
                    , withPos $ docComment
                    , withPos $ attribute
