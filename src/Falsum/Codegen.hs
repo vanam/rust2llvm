@@ -4,9 +4,11 @@ import           Data.Word
 import           Falsum.AST
 import qualified LLVM.General.AST                        as AST
 import           LLVM.General.AST.AddrSpace
+import qualified LLVM.General.AST.Attribute              as A
 import qualified LLVM.General.AST.CallingConvention      as CC
 import qualified LLVM.General.AST.Instruction            as I
 import qualified LLVM.General.AST.Linkage                as L
+import qualified LLVM.General.AST.Operand                as O
 import qualified LLVM.General.AST.Type                   as T
 import qualified LLVM.General.AST.Visibility             as V
 -- import qualified LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage
@@ -38,8 +40,14 @@ simple = Program
                   (VarLet (VarSymbol "b" Int) (IExpr (IVar (ConstSymbol "ANSWER" Int (IntVal 42)))))
               ])
 
+defaultInstrMeta :: I.InstructionMetadata
+defaultInstrMeta = []
+
 defaultAlignment :: Word32
-defaultAlignment = 4
+defaultAlignment = 0
+
+align4 :: Word32
+align4 = 4
 
 i32Lit :: Integer -> C.Constant
 i32Lit = C.Int 32
@@ -61,7 +69,7 @@ simple_ANSWER = AST.GlobalVariable -- https://github.com/bscarlet/llvm-general/b
                   (Just $ i32Lit 42)
                   Nothing
                   Nothing
-                  defaultAlignment
+                  align4
 
 simple_M = AST.GlobalVariable -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
@@ -74,17 +82,20 @@ simple_M = AST.GlobalVariable -- https://github.com/bscarlet/llvm-general/blob/l
              False
              False
              T.i32
-             (Just $ i32Lit 42)
+             (Just $ i32Lit 5)
              Nothing
              Nothing
-             defaultAlignment
+             align4
+
+block :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> AST.BasicBlock
+block name instructions terminator = AST.BasicBlock  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L74
+
+                                       (AST.Name name)
+                                       instructions
+                                       terminator
 
 body :: [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.BasicBlock]
-body instructions terminator = [AST.BasicBlock -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L74
-
-                                  (AST.Name "")
-                                  instructions
-                                  terminator]
+body instructions terminator = [block "" instructions terminator]
 
 -- TODO
 simple_foo :: AST.Global
@@ -98,26 +109,80 @@ simple_foo = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-
                T.void
                (AST.Name "foo")
                ([], False)
-               []
+               [Left $ A.GroupID 0]
                Nothing
                Nothing
                defaultAlignment
                Nothing
                Nothing
-               (body []
+               (body
+                  [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
+                  , I.Do $ I.Store
+                             False
+                             (O.LocalReference T.i32 (AST.Name "a"))
+                             (O.ConstantOperand $ i32Lit 21)
+                             Nothing
+                             align4
+                             defaultInstrMeta
+                  ]
                   (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
 
                      (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
 
                         Nothing
-                        [])))
+                        defaultInstrMeta)))
 
 -- TODO
-simple_main = undefined
+simple_main :: AST.Global
+simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                L.Internal
+                V.Default
+                Nothing
+                CC.C
+                []
+                T.void
+                (AST.Name "main")
+                ([], False)
+                [Left $ A.GroupID 0]
+                Nothing
+                Nothing
+                defaultAlignment
+                Nothing
+                Nothing
+                (body
+                   [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
+                   , (AST.Name "b") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
+                   , I.Do $ I.Store
+                              False
+                              (O.LocalReference T.i32 (AST.Name "a"))
+                              (O.ConstantOperand $ i32Lit 5)
+                              Nothing
+                              align4
+                              defaultInstrMeta
+                   , I.Do $ I.Store
+                              False
+                              (O.LocalReference T.i32 (AST.Name "b"))
+                              (O.ConstantOperand $ i32Lit 42)
+                              Nothing
+                              align4
+                              defaultInstrMeta
+                   ]
+                   (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
+
+                      (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
+
+                         Nothing
+                         defaultInstrMeta)))
 
 topLevelDefs :: [AST.Definition]
-topLevelDefs = fmap AST.GlobalDefinition $
-  [simple_ANSWER, simple_M, simple_foo]
+topLevelDefs = [AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]] ++ (fmap
+                                                                                    AST.GlobalDefinition $
+                                                                                    [ simple_ANSWER
+                                                                                    , simple_M
+                                                                                    , simple_foo
+                                                                                    , simple_main
+                                                                                    ])
 
 moduleInAST :: AST.Module
 moduleInAST = AST.Module "01_simple" Nothing Nothing topLevelDefs
