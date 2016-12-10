@@ -16,5 +16,4 @@ simple = Program
    [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (IVar (VarSymbol "M" Int)))) -- everything is mutable
    ,VarLetStmt (VarLet (VarSymbol "b" Int) (IExpr (IVar (ConstSymbol "ANSWER" Int (IntVal 42)))))])
 
-
 main = putStrLn "hello world"

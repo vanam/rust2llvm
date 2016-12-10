@@ -19,6 +19,7 @@ library
                      , Falsum.Parser
                      , Falsum.TokenTest
                      , Falsum.AST
+                     , Falsum.Codegen
                      , ChangeState
   build-depends:       base >= 4.7 && < 5
                      , parsec >= 3.1.11
