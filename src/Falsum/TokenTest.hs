@@ -35,3 +35,55 @@ isCoupledDoc _ = False
 isCoupledAttribute :: Token -> Bool
 isCoupledAttribute (CoupledAttribute _ _) = True
 isCoupledAttribute _ = False
+
+isColon :: Token -> Bool
+isColon (StructSym Colon) = True
+isColon _ = False
+
+isSemicolon :: Token -> Bool
+isSemicolon (StructSym Semicolon) = True
+isSemicolon _ = False
+
+isLet :: Token -> Bool
+isLet (Keyword Let) = True
+isLet _ = False
+
+isConst :: Token -> Bool
+isConst (Keyword Const) = True
+isConst _ = False
+
+isFn :: Token -> Bool
+isFn (Keyword Fn) = True
+isFn _ = False
+
+isMut :: Token -> Bool
+isMut (Keyword Mut) = True
+isMut _ = False
+
+isFor :: Token -> Bool
+isFor (Keyword For) = True
+isFor _ = False
+
+isLoop :: Token -> Bool
+isLoop (Keyword Loop) = True
+isLoop _ = False
+
+isIf :: Token -> Bool
+isIf (Keyword If) = True
+isIf _ = False
+
+isElse :: Token -> Bool
+isElse (Keyword Else) = True
+isElse _ = False
+
+isIntSuffix :: Token -> Bool
+isIntSuffix (IntLit IntSuffix _) = True
+isIntSuffix _ = False
+
+isFloatSuffix :: Token -> Bool
+isFloatSuffix (IntLit FloatSuffix _) = True
+isFloatSuffix _ = False
+
+isEqualSign :: Token -> Bool
+isEqualSign (Operator EqSign) = True
+isEqualSign _ = False
