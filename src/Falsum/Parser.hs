@@ -56,6 +56,12 @@ anyToken = choice . map satisfy $ [ isSymbol
                                   , isCoupledAttribute
                                   ]
 
+astTest :: Show a => Parser a -> String -> IO ()
+astTest p = either lexerError (P.parseTest p) . tokenize "tokenizeParseTest"
+  where
+    lexerError = putStrLn . ("LEXER: " ++) . show
+
+
 parser :: Parser AST
 parser = fmap Token $ many anyToken
 
