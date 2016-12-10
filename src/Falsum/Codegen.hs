@@ -255,8 +255,7 @@ moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs prog
     where
         file = LLVMMod.File "Rx-linked-cg.bc"-}
 asm :: Program -> IO String
-asm program = CTX.withContext $ \ctx -> liftError $ MOD.withModuleFromAST ctx (moduleInAST program) $ \moduleInLowLevel -> do
-  MOD.moduleLLVMAssembly moduleInLowLevel
+asm program = CTX.withContext $ \ctx -> liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
 
 main = do
   llvmIR <- asm simple
