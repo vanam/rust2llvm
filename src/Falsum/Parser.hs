@@ -46,12 +46,7 @@ satisfy :: (Token -> Bool) -> Parser Token
 satisfy test = satisfy' $ test . fst
 
 anyToken :: Parser Token
-anyToken = choice . map satisfy $ [ isLiteral
-                                  , isLifeTime
-                                  , isKeyword
-                                  , isStructSym
-                                  , isOperator
-                                  , isAnyCoupledDoc
+anyToken = choice . map satisfy $ map isKeyword [Let, Mut] ++ [ isAnyCoupledDoc
                                   , isAnyCoupledAttribute
                                   , isAnySymbol
                                   , isAnyLiteral
@@ -90,15 +85,19 @@ tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
 letStmt :: Parser VarLet
 letStmt =
   do
-    satisfy isKeyword Let
-    optional isKeyword Mut
-    varName <- satisfy isAnySymbol
-    satisfy isStructSymbol Colon
-    varType <- choice (satisfy isLiteral IntSuffix) (satisfy isFloatLit FloatSuffix)
-    satisfy isStructSymbol EqSign
-    varValue <- choice (satisfy isLiteral) parseIExpr
-    satisfy isStructSymbol Semicolon
-    return $ VarLet VarSymbol (varName varValue) varValue
+    satisfy $ isKeyword Let
+    optional . satisfy $ isKeyword Mut
+    symb <- satisfy $ isAnySymbol
+    satisfy $ isStructSymbol Colon
+    symbType <- choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"]
+    satisfy $ isOperator EqSign
+    valueExpr <- parseIExpr
+    satisfy $ isStructSymbol Semicolon
+    return $ VarLet (VarSymbol (symbolName symb) (t symbType)) (IExpr valueExpr)
+  where symbolName (Symbol s) = s
+        t (Symbol "i32") = Int
+        t (Symbol "f32") = Real
+
 
 parseIExpr :: Parser IExpr
 parseIExpr = undefined -- @TODO

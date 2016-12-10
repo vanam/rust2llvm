@@ -16,9 +16,13 @@ isKeyword :: Keyword -> Token -> Bool
 isKeyword k (Keyword x) = k == x
 isKeyword _ _ = False
 
-isStructSym :: StructureSymbol -> Token -> Bool
-isStructSym s (StructSym x) = s == x
-isStructSym _ _ = False
+isSymbol :: String -> Token -> Bool
+isSymbol s (Symbol x) = s == x
+isSymbol _ _ = False
+
+isStructSymbol :: StructureSymbol -> Token -> Bool
+isStructSymbol s (StructSym x) = s == x
+isStructSymbol _ _ = False
 
 isOperator :: Operator -> Token -> Bool
 isOperator o (Operator x) = o == x
