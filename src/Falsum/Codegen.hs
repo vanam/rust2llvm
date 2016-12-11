@@ -226,6 +226,9 @@ fnLetInAST l = simple_foo-- TODO change to something meaningful
 fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
 
+
+problem = I.Do $ I.Call Nothing CC.C [] ((Right $ O.LocalReference T.VoidType (N.Name "foo") `debug` "problem 3") `debug` "problem 2") [] [Left $ A.GroupID 0] defaultInstrMeta `debug` "problem 1"
+
 mainInAST :: FnLet -> AST.Global
 mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
@@ -245,7 +248,7 @@ mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
                 Nothing
                 (body
                    [
-                   I.Do $ I.Call Nothing CC.C [] (Right $ O.LocalReference T.VoidType (N.Name "foo")) [] [] defaultInstrMeta
+                   problem
                    ]
                    (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
 
@@ -290,8 +293,10 @@ moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs prog
         file = LLVMMod.File "Rx-linked-cg.bc"-}
 asm :: Program -> IO String
 asm program = CTX.withContext $ \ctx ->
-  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
+  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) $ \mod ->
+    MOD.moduleLLVMAssembly mod `debug` PP.showPretty (moduleInAST program)
 
 main = do
+  putStrLn $ show problem
   llvmIR <- asm simple
   putStrLn llvmIR

@@ -1,6 +1,5 @@
 module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Parsec) where
 
-import Debug.Trace
 import           Data.Bifunctor
 import           Falsum.AST
 import           Falsum.Lexer
