@@ -31,7 +31,9 @@ simple = Program
            [ ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))
            , ConstLet (ConstSymbol "ANSWERE" Real (RealVal 420)) (FExpr (FLit 420))
            ]
-           [VarLet (VarSymbol "M" Int) (IExpr (ILit 5))]
+           [ VarLet (VarSymbol "M" Int) (IExpr (ILit 5))
+           , VarLet (VarSymbol "Moo" Real) (FExpr (FLit 55.5))
+           ]
            [ FnLet (FnSymbol "foo" [] Nothing) []
                [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21)))]
            ]
@@ -57,40 +59,11 @@ i32Lit = C.Int 32
 f32Lit :: Float -> C.Constant
 f32Lit = C.Float . F.Single
 
+f64Lit :: Double -> C.Constant
+f64Lit = C.Float . F.Double
+
 defaultAddrSpace :: AddrSpace
 defaultAddrSpace = AddrSpace 0
-
-simple_ANSWER = AST.GlobalVariable -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
-
-                  (AST.Name "ANSWER")
-                  L.Internal
-                  V.Default
-                  Nothing
-                  Nothing
-                  defaultAddrSpace
-                  True
-                  True
-                  T.i32
-                  (Just $ i32Lit 42)
-                  Nothing
-                  Nothing
-                  align4
-
-simple_M = AST.GlobalVariable -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
-
-             (AST.Name "M")
-             L.Internal
-             V.Default
-             Nothing
-             Nothing
-             defaultAddrSpace
-             False
-             False
-             T.i32
-             (Just $ i32Lit 5)
-             Nothing
-             Nothing
-             align4
 
 block :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> AST.BasicBlock
 block name instructions terminator = AST.BasicBlock  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L74
@@ -180,15 +153,13 @@ simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
                          Nothing
                          defaultInstrMeta)))
 
--- topLevelDefs :: [AST.Definition] topLevelDefs = [AST.FunctionAttributes (A.GroupID 0)
--- [A.NoUnwind, A.UWTable]] ++ (fmap AST.GlobalDefinition $ [ simple_ANSWER
---                                                                                     , simple_M
---                                                                                     , simple_foo
--- , simple_main
---                                                                                     ])
 constLetInAST :: Integer -> ConstLet -> AST.Global
---[ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))]
-constLetInAST counter (ConstLet sym _) = globalGen sym
+{-|
+  ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))
+  ConstLet (ConstSymbol "ANSWERE" Real (RealVal 420)) (FExpr (FLit 420)
+-}
+constLetInAST counter (ConstLet sym _) = globalGen sym -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+
   where
     gen t n v = AST.GlobalVariable
                   (AST.Name n)
@@ -206,18 +177,44 @@ constLetInAST counter (ConstLet sym _) = globalGen sym
                   align4
     genInt name val = gen T.i32 name $ i32Lit $ toInteger val
     genFloat name val = gen T.float name $ f32Lit val
-    enrich name = name ++ show counter
+    enrich name = "const" ++ show counter
     globalGen (ConstSymbol s Int (IntVal v)) = genInt (enrich s) v
     globalGen (ConstSymbol s Real (RealVal v)) = genFloat (enrich s) v
 
 constLetListInAST :: [ConstLet] -> [AST.Global]
-constLetListInAST defs = map (uncurry constLetInAST) $ zip [1 ..] defs
+constLetListInAST = zipWith constLetInAST [1 ..]
 
-varLetInAST :: VarLet -> AST.Global
-varLetInAST l = simple_M-- TODO change to something meaningful
+-- TODO Check AST for float/double handling - Something is Float and something is Double
+staticVarLetInAST :: VarLet -> AST.Global
+{-|
+  VarLet (VarSymbol "M" Int) (IExpr (ILit 5))
+  VarLet (VarSymbol "Moo" Real) (FExpr (FLit 55.5)
+-}
+staticVarLetInAST (VarLet sym expr) = globalGen sym expr
+  where
+    gen t n v = AST.GlobalVariable  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
-varLetListInAST :: [VarLet] -> [AST.Global]
-varLetListInAST = map varLetInAST
+                  (AST.Name n)
+                  L.Internal
+                  V.Default
+                  Nothing
+                  Nothing
+                  defaultAddrSpace
+                  False
+                  False
+                  t
+                  (Just v)
+                  Nothing
+                  Nothing
+                  align4
+    genInt name val = gen T.i32 name $ i32Lit $ toInteger val
+    genFloat name val = gen T.float name $ f32Lit val
+    genDouble name val = gen T.double name $ f64Lit val
+    globalGen (VarSymbol s Int) (IExpr (ILit v)) = genInt s v
+    globalGen (VarSymbol s Real) (FExpr (FLit v)) = genDouble s v
+
+staticVarLetListInAST :: [VarLet] -> [AST.Global]
+staticVarLetListInAST = map staticVarLetInAST
 
 fnLetInAST :: FnLet -> AST.Global
 fnLetInAST l = simple_main-- TODO change to something meaningful
@@ -226,11 +223,13 @@ fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
 
 programInAST :: Program -> [AST.Global]
-programInAST program@(Program constLetList varLetList fnLetList main) = constLetListInAST
-                                                                          constLetList ++
-                                                                        varLetListInAST varLetList ++
-                                                                        fnLetListInAST fnLetList ++
-                                                                        [fnLetInAST main]
+programInAST program@(Program constLetList staticVarLetList fnLetList main) = constLetListInAST
+                                                                                constLetList ++
+                                                                              staticVarLetListInAST
+                                                                                staticVarLetList ++
+                                                                              fnLetListInAST
+                                                                                fnLetList ++
+                                                                              [fnLetInAST main]
 
 defaultfunctionAttributes :: AST.Definition
 defaultfunctionAttributes = AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]
@@ -239,8 +238,11 @@ topLevelDefs :: Program -> [AST.Definition]
 topLevelDefs program = [defaultfunctionAttributes] ++ (fmap AST.GlobalDefinition $ programInAST
                                                                                      program)
 
--- TODO Set filename as module name TODO(optional) Set module DataLayout TODO(optional) Set module
--- TargetTriple
+{-|
+  TODO Set filename as module name
+  TODO(optional) Set module DataLayout
+  TODO(optional) Set module TargetTriple
+-}
 moduleInAST :: Program -> AST.Module
 moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
 
@@ -255,7 +257,8 @@ moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs prog
     where
         file = LLVMMod.File "Rx-linked-cg.bc"-}
 asm :: Program -> IO String
-asm program = CTX.withContext $ \ctx -> liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
+asm program = CTX.withContext $ \ctx ->
+  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
 
 main = do
   llvmIR <- asm simple
