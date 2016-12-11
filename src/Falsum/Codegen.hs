@@ -1,7 +1,7 @@
 module Falsum.Codegen where
 
-import Debug.Trace
 import           Data.Word
+import           Debug.Trace
 import           Falsum.AST
 import qualified LLVM.General.AST                        as AST
 import           LLVM.General.AST.AddrSpace
@@ -157,12 +157,12 @@ simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
                          Nothing
                          defaultInstrMeta)))
 
-constLetInAST :: Integer -> ConstLet -> AST.Global
+constLetInAST :: ConstLet -> AST.Global
 {-|
   ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))
   ConstLet (ConstSymbol "ANSWERE" Real (RealVal 420)) (FExpr (FLit 420)
 -}
-constLetInAST counter (ConstLet sym _) = globalGen sym -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+constLetInAST (ConstLet sym _) = globalGen sym -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
   where
     gen t n v = AST.GlobalVariable
@@ -181,12 +181,12 @@ constLetInAST counter (ConstLet sym _) = globalGen sym -- https://github.com/bsc
                   align4
     genInt name val = gen T.i32 name $ i32Lit $ toInteger val
     genFloat name val = gen T.float name $ f32Lit val
-    enrich name = "const" ++ show counter
+    enrich name = "const"
     globalGen (ConstSymbol s Int (IntVal v)) = genInt (enrich s) v
     globalGen (ConstSymbol s Real (RealVal v)) = genFloat (enrich s) v
 
 constLetListInAST :: [ConstLet] -> [AST.Global]
-constLetListInAST = zipWith constLetInAST [1 ..]
+constLetListInAST = map constLetInAST
 
 -- TODO Check AST for float/double handling - Something is Float and something is Double
 staticVarLetInAST :: VarLet -> AST.Global
@@ -221,24 +221,17 @@ staticVarLetListInAST :: [VarLet] -> [AST.Global]
 staticVarLetListInAST = map staticVarLetInAST
 
 fnLetInAST :: FnLet -> AST.Global
-fnLetInAST l = simple_foo-- TODO change to something meaningful
-
-fnLetListInAST :: [FnLet] -> [AST.Global]
-fnLetListInAST = map fnLetInAST
-
-
-problem = I.Do $ I.Call Nothing CC.C [] ((Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False) (N.Name "foo") `debug` "problem 3") `debug` "problem 2") [] [Left $ A.GroupID 0] defaultInstrMeta `debug` "problem 1"
-
-mainInAST :: FnLet -> AST.Global
-mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+fnLetInAST f@(FnLet (FnSymbol name argTypes ret) args statements) = globalGen name ret
+  where
+    gen t n = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
                 L.External
                 V.Default
                 Nothing
                 CC.C
                 []
-                T.i32
-                (AST.Name "main")
+                t
+                (AST.Name n)
                 ([], False)
                 [Left $ A.GroupID 0]
                 Nothing
@@ -246,16 +239,67 @@ mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
                 defaultAlignment
                 Nothing
                 Nothing
-                (body
-                   [
-                   problem
-                   ]
+                (body []
+                   --  TODO body
                    (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
 
                       (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
 
-                         ((Just $ O.ConstantOperand $ i32Lit $ toInteger 0) `debug` "OK 3nnn")
-                         defaultInstrMeta) `debug` "OK 3nn" ) `debug` "OK 3n" ) `debug` "OK 3"
+                         Nothing
+                         defaultInstrMeta) `debug` "OK 3nn") `debug` "OK 3n") `debug` "OK 3"
+    globalGen name Nothing = gen T.void name
+    globalGen name (Just Int) = gen T.i32 name
+
+fnLetListInAST :: [FnLet] -> [AST.Global]
+fnLetListInAST = map fnLetInAST
+
+-- (FnLet (FnSymbol "main" [] Nothing) [] [])
+mainToPseudomain :: FnLet -> FnLet
+mainToPseudomain main@(FnLet (FnSymbol name argTypes ret) args statements) = FnLet
+                                                                               (FnSymbol
+                                                                                  "falsum_main"
+                                                                                  argTypes
+                                                                                  ret)
+                                                                               args
+                                                                               statements
+
+mainInAST :: FnLet -> [AST.Global]
+mainInAST m = [ fnLetInAST $ mainToPseudomain m
+              , AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                  L.External
+                  V.Default
+                  Nothing
+                  CC.C
+                  []
+                  T.i32
+                  (AST.Name "main")
+                  ([], False)
+                  [Left $ A.GroupID 0]
+                  Nothing
+                  Nothing
+                  defaultAlignment
+                  Nothing
+                  Nothing
+                  (body
+                     [ I.Do $ I.Call
+                                Nothing
+                                CC.C
+                                []
+                                ((Right $ O.ConstantOperand $ C.GlobalReference
+                                                                (T.FunctionType T.void [] False)
+                                                                (N.Name "falsum_main") `debug` "problem 3") `debug` "problem 2")
+                                []
+                                [Left $ A.GroupID 0]
+                                defaultInstrMeta `debug` "problem 1"
+                     ]
+                     (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
+
+                        (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
+
+                           ((Just $ O.ConstantOperand $ i32Lit $ toInteger 0) `debug` "OK 3nnn")
+                           defaultInstrMeta) `debug` "OK 3nn") `debug` "OK 3n") `debug` "OK 3"
+              ]
 
 programInAST :: Program -> [AST.Global]
 programInAST program@(Program constLetList staticVarLetList fnLetList main) = constLetListInAST
@@ -264,14 +308,14 @@ programInAST program@(Program constLetList staticVarLetList fnLetList main) = co
                                                                                 staticVarLetList ++
                                                                               fnLetListInAST
                                                                                 fnLetList `debug` "OK 2" ++
-                                                                              [mainInAST main] `debug` "OK 4"
+                                                                              mainInAST main `debug` "OK 4"
 
 defaultfunctionAttributes :: AST.Definition
 defaultfunctionAttributes = AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]
 
 topLevelDefs :: Program -> [AST.Definition]
 topLevelDefs program = [defaultfunctionAttributes] `debug` "OK 1" ++ (fmap AST.GlobalDefinition $ programInAST
-                                                                                     program)
+                                                                                                    program)
 
 {-|
   TODO Set filename as module name
@@ -280,7 +324,8 @@ topLevelDefs program = [defaultfunctionAttributes] `debug` "OK 1" ++ (fmap AST.G
 -}
 moduleInAST :: Program -> AST.Module
 moduleInAST program = mod `debug` PP.showPretty mod
-    where mod = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
+  where
+    mod = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
 
 {-main =
     LLVMCtx.withContext $ \ctx ->
