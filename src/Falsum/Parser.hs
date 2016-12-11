@@ -103,6 +103,9 @@ keyword k = (satisfy $ isKeyword k) *> pure ()
 structSymbol :: StructureSymbol -> Parser ()
 structSymbol sym = (satisfy $ isStructSymbol sym) *> pure ()
 
+literal :: Literal -> Parser ()
+literal l = (satisfy $ isLiteral l) *> pure ()
+
 comma :: Parser ()
 comma = structSymbol Comma
 
@@ -173,4 +176,70 @@ parseBlock :: Parser [Stmt]
 parseBlock = undefined
 
 parseExpr :: Parser Expr
-parseExpr = undefined -- @TODO
+parseExpr = choice [parseIExpr, parseFExpr, parseBExpr]
+
+parseIExpr :: Parser IExpr
+parseIExpr = choice [parseILit, parseIVar, parseINeg, parseIBinary, parseICall]
+
+parseILit :: Parser IExpr
+parseILit =
+  do
+    intLit <- literal IntLit
+    return $ ILit (getVal intLit)
+
+  where
+    getVal =
+      case intLit of
+        (IntLit _ intVal) -> intVal
+
+-- getValOfIntLit :: Literal -> Integer getValOfIntLit (IntLit _ intVal) = intVal
+parseIVar :: Parser IExpr
+parseIVar =
+  do
+    symbName <- parseSymbolName
+    structSymbol Semicolon
+    let ls = lookupSymbol {-get parser state-} symbName
+    return $ IVar (Just ls) -- checknout jestli je to opravdu VarSymbol
+
+parseINeg :: Parser IExpr
+parseINeg =
+  do
+    operator Minus
+    expr <- parseIExpr
+    return $ INeg expr
+
+parseIBinary :: Parser IExpr
+parseIBinary =
+  do
+    expr1 <- parseIExpr
+    operator <- satisfy isAnyOperator
+    expr2 <- parseIExpr
+    return $ IBinary (parseIOp operator) expr1 expr2
+
+parseIOp :: Operator -> IOp
+parseIOp Plus = IPlus
+parseIOp Minus = IMinus
+parseIOp Star = IMult
+parseIOp Slash = IDiv
+parseIOp Percent = IMod
+parseIOp And = IAnd
+parseIOp Or = IOr
+parseIOp Caret = IXor
+
+--Symbol "bar",StructSym LParen,Symbol "moje_promenna",StructSym RParen,StructSym Semicolon,
+parseICall :: Parser IExpr
+parseICall =
+  do
+    fnName <- parseSymbolName
+    structSymbol LParen
+    fnParams <- parseArg `sepBy` comma
+    structSymbol RParen
+    structSymbol Semicolon
+    let ls = lookupSymbol {-get parser state-} fnName
+    return $ ICall (Just ls) fnParams
+
+parseFExpr :: Parser FExpr
+parseFExpr = undefined
+
+parseBExpr :: Parser BExpr
+parseBExpr = undefined
