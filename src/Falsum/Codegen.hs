@@ -8,6 +8,7 @@ import qualified LLVM.General.AST.Attribute              as A
 import qualified LLVM.General.AST.CallingConvention      as CC
 import qualified LLVM.General.AST.Instruction            as I
 import qualified LLVM.General.AST.Linkage                as L
+import qualified LLVM.General.AST.Name                   as N
 import qualified LLVM.General.AST.Operand                as O
 import qualified LLVM.General.AST.Type                   as T
 import qualified LLVM.General.AST.Visibility             as V
@@ -114,7 +115,7 @@ simple_foo = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-
 simple_main :: AST.Global
 simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
-                L.Internal
+                L.External
                 V.Default
                 Nothing
                 CC.C
@@ -217,10 +218,38 @@ staticVarLetListInAST :: [VarLet] -> [AST.Global]
 staticVarLetListInAST = map staticVarLetInAST
 
 fnLetInAST :: FnLet -> AST.Global
-fnLetInAST l = simple_main-- TODO change to something meaningful
+fnLetInAST l = simple_foo-- TODO change to something meaningful
 
 fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
+
+mainInAST :: FnLet -> AST.Global
+mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                L.External
+                V.Default
+                Nothing
+                CC.C
+                []
+                T.i32
+                (AST.Name "main")
+                ([], False)
+                [Left $ A.GroupID 0]
+                Nothing
+                Nothing
+                defaultAlignment
+                Nothing
+                Nothing
+                (body
+                   [
+                   I.Do $ I.Call Nothing CC.C [] (Right $ O.LocalReference T.VoidType (N.Name "foo")) [] [] defaultInstrMeta
+                   ]
+                   (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
+
+                      (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
+
+                         (Just $ O.ConstantOperand (i32Lit $ toInteger 0))
+                         defaultInstrMeta)))
 
 programInAST :: Program -> [AST.Global]
 programInAST program@(Program constLetList staticVarLetList fnLetList main) = constLetListInAST
@@ -229,7 +258,7 @@ programInAST program@(Program constLetList staticVarLetList fnLetList main) = co
                                                                                 staticVarLetList ++
                                                                               fnLetListInAST
                                                                                 fnLetList ++
-                                                                              [fnLetInAST main]
+                                                                              [mainInAST main]
 
 defaultfunctionAttributes :: AST.Definition
 defaultfunctionAttributes = AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]
