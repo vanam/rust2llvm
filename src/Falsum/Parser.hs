@@ -1,5 +1,6 @@
 module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Parsec) where
 
+import ChangeState
 import           Data.Bifunctor
 import           Falsum.AST
 import           Falsum.Lexer
@@ -9,7 +10,13 @@ import           Text.Parsec                         hiding (anyToken, parse,
 import qualified Text.Parsec                         as P
 import           Text.ParserCombinators.Parsec.Error
 
-type Parser a = Parsec [TokenPos] () a
+type Parser a = Parsec [TokenPos] ParseState a
+
+initialState :: ParseState
+initialState = ParseState []
+
+maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
+maskState = changeState (const ()) (const $ ParseState [])
 
 data AST = Token [Token]
   deriving (Show, Eq)
@@ -59,7 +66,7 @@ anyToken = choice . map satisfy $ map isKeyword [Let, Mut] ++ [ isAnyCoupledDoc
                                                               ]
 
 astTest :: Show a => Parser a -> String -> IO ()
-astTest p = either lexerError (P.parseTest p) . tokenize "tokenizeParseTest"
+astTest p = either lexerError (P.parseTest $ maskState p) . tokenize "tokenizeParseTest"
   where
     lexerError = putStrLn . ("LEXER: " ++) . show
 
@@ -67,7 +74,7 @@ parser :: Parser AST
 parser = fmap Token $ many anyToken
 
 parseTest :: [TokenPos] -> IO ()
-parseTest = P.parseTest parser
+parseTest = P.parseTest $ maskState $ parser
 
 tokenizeParseTest :: String -> IO ()
 tokenizeParseTest = either lexerError parseTest . tokenize "tokenizeParseTest"
@@ -75,7 +82,7 @@ tokenizeParseTest = either lexerError parseTest . tokenize "tokenizeParseTest"
     lexerError = putStrLn . ("LEXER: " ++) . show
 
 parse :: SourceName -> [TokenPos] -> Either ParseError AST
-parse = runParser parser ()
+parse = runParser parser $ ParseState []
 
 tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError AST)
 tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
@@ -103,8 +110,11 @@ keyword k = (satisfy $ isKeyword k) *> pure ()
 structSymbol :: StructureSymbol -> Parser ()
 structSymbol sym = (satisfy $ isStructSymbol sym) *> pure ()
 
-literal :: Literal -> Parser ()
-literal l = (satisfy $ isLiteral l) *> pure ()
+literal :: Parser Token
+literal = satisfy isAnyLiteral
+
+intLiteral :: Parser Token
+intLiteral = satisfy isIntLiteral
 
 comma :: Parser ()
 comma = structSymbol Comma
@@ -176,7 +186,7 @@ parseBlock :: Parser [Stmt]
 parseBlock = undefined
 
 parseExpr :: Parser Expr
-parseExpr = choice [parseIExpr, parseFExpr, parseBExpr]
+parseExpr = choice [fmap IExpr $ parseIExpr, fmap FExpr $ parseFExpr, fmap BExpr $ parseBExpr]
 
 parseIExpr :: Parser IExpr
 parseIExpr = choice [parseILit, parseIVar, parseINeg, parseIBinary, parseICall]
@@ -184,13 +194,13 @@ parseIExpr = choice [parseILit, parseIVar, parseINeg, parseIBinary, parseICall]
 parseILit :: Parser IExpr
 parseILit =
   do
-    intLit <- literal IntLit
-    return $ ILit (getVal intLit)
+    lit <- intLiteral
+    return $ ILit $ getVal lit
 
   where
-    getVal =
-      case intLit of
-        (IntLit _ intVal) -> intVal
+    getVal iL =
+      case iL of
+        (Literal (IntLit _ intVal)) -> intVal
 
 -- getValOfIntLit :: Literal -> Integer getValOfIntLit (IntLit _ intVal) = intVal
 parseIVar :: Parser IExpr
@@ -198,8 +208,10 @@ parseIVar =
   do
     symbName <- parseSymbolName
     structSymbol Semicolon
-    let ls = lookupSymbol {-get parser state-} symbName
-    return $ IVar (Just ls) -- checknout jestli je to opravdu VarSymbol
+    state <- getState
+    case lookupSymbol state symbName of
+      Nothing -> unexpected "Missing symbol"
+      Just sym -> return $ IVar sym -- checknout jestli je to opravdu VarSymbol
 
 parseINeg :: Parser IExpr
 parseINeg =
@@ -212,9 +224,10 @@ parseIBinary :: Parser IExpr
 parseIBinary =
   do
     expr1 <- parseIExpr
-    operator <- satisfy isAnyOperator
+    op <- satisfy isAnyOperator
     expr2 <- parseIExpr
-    return $ IBinary (parseIOp operator) expr1 expr2
+    return $ IBinary (parseIOp $ extractOp op) expr1 expr2
+  where extractOp (Operator o) = o
 
 parseIOp :: Operator -> IOp
 parseIOp Plus = IPlus
@@ -235,8 +248,10 @@ parseICall =
     fnParams <- parseArg `sepBy` comma
     structSymbol RParen
     structSymbol Semicolon
-    let ls = lookupSymbol {-get parser state-} fnName
-    return $ ICall (Just ls) fnParams
+    state <- getState
+    case lookupSymbol state fnName of
+      Nothing -> unexpected "Missing symbol"
+      Just sym -> return $ ICall sym $ map (IExpr . IVar) fnParams -- TODO paramery muzou mit vselijaky typ
 
 parseFExpr :: Parser FExpr
 parseFExpr = undefined

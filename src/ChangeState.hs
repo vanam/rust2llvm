@@ -11,7 +11,7 @@ changeState :: forall m s u v a. Monad m
                               -> (v -> u)
                               -> ParsecT s u m a
                               -> ParsecT s v m a
-changeState forward backward = mkPT . transform . runParsecT
+changeState backward forward = mkPT . transform . runParsecT
   where
     mapState :: forall u' v'. (u' -> v') -> State s u' -> State s v'
     mapState f st = st { stateUser = f (stateUser st) }
@@ -24,4 +24,4 @@ changeState forward backward = mkPT . transform . runParsecT
 
     transform :: (State s u -> m (Consumed (m (Reply s u a))))
               -> (State s v -> m (Consumed (m (Reply s v a))))
-    transform p st = fmap3 (mapReply forward) (p (mapState backward st))
+    transform p st = fmap3 (mapReply backward) (p (mapState forward st))

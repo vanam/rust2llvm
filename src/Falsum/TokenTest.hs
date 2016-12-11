@@ -4,9 +4,9 @@ module Falsum.TokenTest where
 -- <http://stackoverflow.com/a/6089121>, but we would confuse the linter in Atom.
 import           Falsum.Lexer
 
-isLiteral :: Literal -> Token -> Bool
-isLiteral l (Literal x) = l == x
-isLiteral _ _ = False
+isIntLiteral :: Token -> Bool
+isIntLiteral (Literal (IntLit _ _)) = True
+isIntLiteral _ = False
 
 isLifeTime :: LifeTime -> Token -> Bool
 isLifeTime lt (LifeTime x) = lt == x
