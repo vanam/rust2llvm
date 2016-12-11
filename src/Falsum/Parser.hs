@@ -82,63 +82,65 @@ tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
   where
     lexerError = addErrorMessage (Message "LEXER complaints")
 
+parseType :: Parser ValueType
+parseType = fmap t $ choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"]
+  where
+    t (Symbol "i32") = Int
+    t (Symbol "f32") = Real
+
+symbolName :: Token -> String
+symbolName (Symbol s) = s
+
+parseSymbolName :: Parser String
+parseSymbolName = fmap symbolName $ satisfy isAnySymbol
+
+operator :: Operator -> Parser ()
+operator o = (satisfy $ isOperator o) *> pure ()
+
+keyword :: Keyword -> Parser ()
+keyword k = (satisfy $ isKeyword k) *> pure ()
+
+structSymbol :: StructureSymbol -> Parser ()
+structSymbol sym = (satisfy $ isStructSymbol sym) *> pure ()
+
+comma :: Parser ()
+comma = structSymbol Comma
+
 parseVarLet :: Parser VarLet
 parseVarLet =
   do
-    satisfy $ isKeyword Let
-    optional . satisfy $ isKeyword Mut
-    symb <- satisfy isAnySymbol
-    satisfy $ isStructSymbol Colon
-    symbType <- choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"] -- šlo by tohle nějak
-                                                                            -- jednoduše vyhodit do
-                                                                            -- funkce, když je tam
-                                                                            -- ten where
-    satisfy $ isOperator EqSign
+    keyword Let
+    optional $ keyword Mut
+    symbName <- parseSymbolName
+    structSymbol Colon
+    ty <- parseType
+    operator EqSign
     valueExpr <- parseIExpr
-    satisfy $ isStructSymbol Semicolon
-    return $ VarLet (VarSymbol (symbolName symb) (t symbType)) (IExpr valueExpr)
-
-  where
-    symbolName (Symbol s) = s
-    t (Symbol "i32") = Int
-    t (Symbol "f32") = Real
+    structSymbol Semicolon
+    return $ VarLet (VarSymbol symbName ty) (IExpr valueExpr)
 
 parseFnLet :: Parser FnLet
 parseFnLet =
   do
-    satisfy $ isKeyword Fn
-    fnName <- satisfy isAnySymbol
-    satisfy $ isStructSymbol LParen
-    fnParams <- sepBy parseArg Comma
-    satisfy $ isStructSymbol RParen
-    fnReturnType <- optional parseReturnType
+    keyword Fn
+    fnName <- parseSymbolName
+    structSymbol LParen
+    fnParams <- parseArg `sepBy` comma
+    structSymbol RParen
+    fnReturnType <- optionMaybe parseReturnType
     fnBlock <- parseBlock
-    return $ FnLet (FnSymbol (fnName fnReturnType)) fnParams fnBlock
+    return $ FnLet (FnSymbol fnName fnReturnType) fnParams fnBlock
 
 parseArg :: Parser Symbol
 parseArg =
   do
-    argName <- satisfy isAnySymbol
-    satisfy $ isStructSymbol Colon
-    argType <- choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"] -- do fce
-    return $ VarSymbol ((t argName) argType)
-
-  where
-    symbolName (Symbol s) = s
-    t (Symbol "i32") = Int
-    t (Symbol "f32") = Real
+    argName <- parseSymbolName
+    structSymbol Colon
+    argType <- parseType
+    return $ VarSymbol argName argType
 
 parseReturnType :: Parser ValueType
-parseReturnType =
-  do
-    satisfy $ isStructSymbol RArrow
-    returnType <- choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"] -- do fce
-    return $ t returnType
-
-  where
-    symbolName (Symbol s) = s
-    t (Symbol "i32") = Int
-    t (Symbol "f32") = Real
+parseReturnType = structSymbol RArrow *> parseType
 
 parseBlock :: Parser [Stmt]
 parseBlock = undefined
