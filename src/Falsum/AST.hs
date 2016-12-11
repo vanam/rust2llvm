@@ -6,7 +6,7 @@ data Program = Program [ConstLet] [VarLet] [FnLet] FnLet
 data FnLet = FnLet Symbol [Symbol] [Stmt]
   deriving (Show, Eq, Ord)
 
-data ConstLet = ConstLet Symbol Expr
+data ConstLet = ConstLet Symbol Value
   deriving (Show, Eq, Ord)
 
 data VarLet = VarLet Symbol Expr
@@ -48,7 +48,7 @@ data IExpr = ILit Integer
            | IAssign LValue IExpr
   deriving (Show, Eq, Ord)
 
-data FExpr = FLit Double
+data FExpr = FLit Float
            | FVar Symbol
            | FNeg FExpr
            | FBinary FOp FExpr FExpr
@@ -93,7 +93,7 @@ data Scope = Scope [Symbol]
 
 data Symbol = VarSymbol String ValueType
             | FnSymbol String (Maybe ValueType) -- return přes maybe?
-            | ConstSymbol String ValueType Value -- const nakonec takhle?
+            | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
 data ValueType = Int

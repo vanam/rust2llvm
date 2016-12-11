@@ -24,9 +24,9 @@ lookupSymbol (ParseState (scope:scopes)) ident =
         where
           symName =
                      case sym of
-                       VarSymbol name _     -> name
-                       ConstSymbol name _ _ -> name
-                       FnSymbol name _      -> name
+                       VarSymbol name _   -> name
+                       ConstSymbol name _ -> name
+                       FnSymbol name _    -> name
       maybeSym = search scope ident
   in case maybeSym of
     Nothing -> lookupSymbol (ParseState scopes) ident
@@ -115,9 +115,36 @@ parseVarLet =
     structSymbol Colon
     ty <- parseType
     operator EqSign
-    valueExpr <- parseIExpr
+    valueExpr <- parseExpr
     structSymbol Semicolon
-    return $ VarLet (VarSymbol symbName ty) (IExpr valueExpr)
+    return $ VarLet (VarSymbol symbName ty) valueExpr
+
+parseConstLet :: Parser ConstLet
+parseConstLet =
+  do
+    keyword Const
+    symbName <- parseSymbolName
+    structSymbol Colon
+    ty <- parseType
+    operator EqSign
+    valueLit <- parseLiteral
+    structSymbol Semicolon
+    return $ ConstLet (ConstSymbol symbName ty) valueLit
+
+parseLiteral :: Parser Value
+parseLiteral =
+  do
+    val <- satisfy isAnyLiteral
+    return $ lit2Value $ token2Lit val
+
+token2Lit :: Token -> Literal
+-- token2Lit = Literal -- nejak se mu nechce, jak na to?
+token2Lit = undefined
+
+lit2Value :: Literal -> Value
+lit2Value (IntLit _ x) = IntVal $ fromIntegral x
+lit2Value (FloatLit _ (Left x)) = RealVal x
+lit2Value (FloatLit _ (Right x)) = RealVal $ realToFrac x
 
 parseFnLet :: Parser FnLet
 parseFnLet =
@@ -145,5 +172,5 @@ parseReturnType = structSymbol RArrow *> parseType
 parseBlock :: Parser [Stmt]
 parseBlock = undefined
 
-parseIExpr :: Parser IExpr
-parseIExpr = undefined -- @TODO
+parseExpr :: Parser Expr
+parseExpr = undefined -- @TODO
