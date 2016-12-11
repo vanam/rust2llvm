@@ -279,7 +279,8 @@ topLevelDefs program = [defaultfunctionAttributes] `debug` "OK 1" ++ (fmap AST.G
   TODO(optional) Set module TargetTriple
 -}
 moduleInAST :: Program -> AST.Module
-moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
+moduleInAST program = mod `debug` PP.showPretty mod
+    where mod = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
 
 {-main =
     LLVMCtx.withContext $ \ctx ->
@@ -293,8 +294,7 @@ moduleInAST program = AST.Module "01_simple" Nothing Nothing $ topLevelDefs prog
         file = LLVMMod.File "Rx-linked-cg.bc"-}
 asm :: Program -> IO String
 asm program = CTX.withContext $ \ctx ->
-  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) $ \mod ->
-    MOD.moduleLLVMAssembly mod `debug` PP.showPretty (moduleInAST program)
+  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
 
 main = do
   putStrLn $ show problem
