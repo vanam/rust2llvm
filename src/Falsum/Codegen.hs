@@ -25,7 +25,7 @@ import qualified LLVM.General.PrettyPrint                as PP
 import           Control.Monad
 import           Control.Monad.Trans.Except
 
-debug = flip trace
+debug = const --flip trace
 
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
@@ -297,6 +297,6 @@ asm program = CTX.withContext $ \ctx ->
   liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
 
 main = do
-  putStrLn $ show problem
+  --putStrLn $ show problem
   llvmIR <- asm simple
   putStrLn llvmIR
