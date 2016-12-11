@@ -227,7 +227,7 @@ fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
 
 
-problem = I.Do $ I.Call Nothing CC.C [] ((Right $ O.LocalReference T.VoidType (N.Name "foo") `debug` "problem 3") `debug` "problem 2") [] [Left $ A.GroupID 0] defaultInstrMeta `debug` "problem 1"
+problem = I.Do $ I.Call Nothing CC.C [] ((Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False) (N.Name "foo") `debug` "problem 3") `debug` "problem 2") [] [Left $ A.GroupID 0] defaultInstrMeta `debug` "problem 1"
 
 mainInAST :: FnLet -> AST.Global
 mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
