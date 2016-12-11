@@ -1,5 +1,6 @@
 module Falsum.Codegen where
 
+import Debug.Trace
 import           Data.Word
 import           Falsum.AST
 import qualified LLVM.General.AST                        as AST
@@ -23,6 +24,8 @@ import qualified LLVM.General.PrettyPrint                as PP
 
 import           Control.Monad
 import           Control.Monad.Trans.Except
+
+debug = flip trace
 
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
@@ -248,8 +251,8 @@ mainInAST m = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
 
                       (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
 
-                         (Just $ O.ConstantOperand (i32Lit $ toInteger 0))
-                         defaultInstrMeta)))
+                         ((Just $ O.ConstantOperand $ i32Lit $ toInteger 0) `debug` "OK 3nnn")
+                         defaultInstrMeta) `debug` "OK 3nn" ) `debug` "OK 3n" ) `debug` "OK 3"
 
 programInAST :: Program -> [AST.Global]
 programInAST program@(Program constLetList staticVarLetList fnLetList main) = constLetListInAST
@@ -257,14 +260,14 @@ programInAST program@(Program constLetList staticVarLetList fnLetList main) = co
                                                                               staticVarLetListInAST
                                                                                 staticVarLetList ++
                                                                               fnLetListInAST
-                                                                                fnLetList ++
-                                                                              [mainInAST main]
+                                                                                fnLetList `debug` "OK 2" ++
+                                                                              [mainInAST main] `debug` "OK 4"
 
 defaultfunctionAttributes :: AST.Definition
 defaultfunctionAttributes = AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]
 
 topLevelDefs :: Program -> [AST.Definition]
-topLevelDefs program = [defaultfunctionAttributes] ++ (fmap AST.GlobalDefinition $ programInAST
+topLevelDefs program = [defaultfunctionAttributes] `debug` "OK 1" ++ (fmap AST.GlobalDefinition $ programInAST
                                                                                      program)
 
 {-|
