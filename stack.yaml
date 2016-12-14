@@ -1,12 +1,17 @@
-resolver: lts-6.26
+resolver: lts-7.4
 
 packages:
 - '.'
+- location:
+    git: git@github.com:bscarlet/llvm-general.git
+    commit: 529f9bf117b5ffd1ccf7ebeb679a97b3b1c67938 # llvm-3.8 branch
+  subdirs:
+  - llvm-general
+  - llvm-general-pure
+  extra-dep: true
 
 extra-deps:
 - stylish-haskell-0.5.17.0
-- llvm-general-3.5.1.2
-- llvm-general-pure-3.5.1.0
 
 flags: {}
 
