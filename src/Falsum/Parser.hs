@@ -201,7 +201,7 @@ parseBlock =
     stmts <- many parseStmt
     structSymbol RBrace
     state <- getState
-    putState $ addNewScope state
+    modifyState addNewScope
     return stmts
 
 parseStmt :: Parser Stmt
