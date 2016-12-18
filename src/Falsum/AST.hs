@@ -27,7 +27,7 @@ data Stmt = ConstLetStmt ConstLet
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
-          | If BExpr [Stmt] [Stmt]
+          | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
 data BExpr = Blit Bool

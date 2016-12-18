@@ -1,6 +1,6 @@
 module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Parsec) where
 
-import ChangeState
+import           ChangeState
 import           Data.Bifunctor
 import           Falsum.AST
 import           Falsum.Lexer
@@ -38,6 +38,19 @@ lookupSymbol (ParseState (scope:scopes)) ident =
   in case maybeSym of
     Nothing -> lookupSymbol (ParseState scopes) ident
     _       -> maybeSym
+
+addNewScope :: ParseState -> ParseState
+addNewScope (ParseState scopes) = ParseState $ scopes ++ [Scope []]
+
+removeCurrentScope :: ParseState -> ParseState
+removeCurrentScope (ParseState scopes) = ParseState $ init scopes
+
+addSymbolToScope :: Symbol -> ParseState -> ParseState
+addSymbolToScope sym (ParseState scopes) =
+  ParseState $ init scopes ++ [addSymbolToScope' (last scopes) sym]
+
+addSymbolToScope' :: Scope -> Symbol -> Scope
+addSymbolToScope' (Scope scope) sym = Scope (scope ++ [sym])
 
 advance :: SourcePos -> t -> [TokenPos] -> SourcePos
 advance _ _ ((_, pos):_) = pos
@@ -151,8 +164,7 @@ parseLiteral =
     return $ lit2Value $ token2Lit val
 
 token2Lit :: Token -> Literal
--- token2Lit = Literal -- nejak se mu nechce, jak na to?
-token2Lit = undefined
+token2Lit (Literal x) = x
 
 lit2Value :: Literal -> Value
 lit2Value (IntLit _ x) = IntVal $ fromIntegral x
@@ -183,10 +195,53 @@ parseReturnType :: Parser ValueType
 parseReturnType = structSymbol RArrow *> parseType
 
 parseBlock :: Parser [Stmt]
-parseBlock = undefined
+parseBlock =
+  do
+    structSymbol LBrace
+    stmts <- many parseStmt
+    structSymbol RBrace
+    state <- getState
+    putState $ addNewScope state
+    return stmts
+
+parseStmt :: Parser Stmt
+parseStmt = choice
+              [ fmap ConstLetStmt $ parseConstLet
+              , fmap VarLetStmt $ parseVarLet
+              , parseLoop
+              , parseWhile
+              , fmap Expr $ parseExpr
+              ]
+
+parseLoop :: Parser Stmt
+parseLoop = do
+  keyword Falsum.Lexer.Loop
+  block <- parseBlock
+  return $ Falsum.AST.Loop block
+
+parseWhile :: Parser Stmt
+parseWhile = do
+  keyword Falsum.Lexer.While
+  cond <- parseBExpr
+  whileBlock <- parseBlock
+  return $ Falsum.AST.While cond whileBlock
 
 parseExpr :: Parser Expr
-parseExpr = choice [fmap IExpr $ parseIExpr, fmap FExpr $ parseFExpr, fmap BExpr $ parseBExpr]
+parseExpr = choice
+              [fmap IExpr $ parseIExpr, fmap FExpr $ parseFExpr, fmap BExpr $ parseBExpr, parseIf]
+
+parseIf :: Parser Expr
+parseIf = do
+  keyword Falsum.Lexer.If
+  cond <- parseBExpr
+  ifBlock <- parseBlock
+  elseBlock <- optionMaybe parseElse
+  return $ Falsum.AST.If cond ifBlock elseBlock
+
+parseElse :: Parser [Stmt]
+parseElse = do
+  keyword Else
+  parseBlock
 
 parseIExpr :: Parser IExpr
 parseIExpr = choice [parseILit, parseIVar, parseINeg, parseIBinary, parseICall]
@@ -202,7 +257,6 @@ parseILit =
       case iL of
         (Literal (IntLit _ intVal)) -> intVal
 
--- getValOfIntLit :: Literal -> Integer getValOfIntLit (IntLit _ intVal) = intVal
 parseIVar :: Parser IExpr
 parseIVar =
   do
@@ -210,8 +264,8 @@ parseIVar =
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
-      Nothing -> unexpected "Missing symbol"
-      Just sym -> return $ IVar sym -- checknout jestli je to opravdu VarSymbol
+      Nothing  -> unexpected "Missing symbol"
+      Just sym -> return $ IVar sym
 
 parseINeg :: Parser IExpr
 parseINeg =
@@ -227,7 +281,9 @@ parseIBinary =
     op <- satisfy isAnyOperator
     expr2 <- parseIExpr
     return $ IBinary (parseIOp $ extractOp op) expr1 expr2
-  where extractOp (Operator o) = o
+
+  where
+    extractOp (Operator o) = o
 
 parseIOp :: Operator -> IOp
 parseIOp Plus = IPlus
@@ -239,7 +295,6 @@ parseIOp And = IAnd
 parseIOp Or = IOr
 parseIOp Caret = IXor
 
---Symbol "bar",StructSym LParen,Symbol "moje_promenna",StructSym RParen,StructSym Semicolon,
 parseICall :: Parser IExpr
 parseICall =
   do
@@ -250,8 +305,9 @@ parseICall =
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
-      Nothing -> unexpected "Missing symbol"
-      Just sym -> return $ ICall sym $ map (IExpr . IVar) fnParams -- TODO paramery muzou mit vselijaky typ
+      Nothing  -> unexpected "Missing symbol"
+      Just sym -> return $ ICall sym $ map (IExpr . IVar) fnParams -- TODO paramery muzou mit
+                                                                   -- vselijaky typ
 
 parseFExpr :: Parser FExpr
 parseFExpr = undefined
