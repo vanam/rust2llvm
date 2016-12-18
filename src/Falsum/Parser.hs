@@ -300,14 +300,13 @@ parseICall =
   do
     fnName <- parseSymbolName
     structSymbol LParen
-    fnParams <- parseArg `sepBy` comma
+    fnParams <- parseExpr `sepBy` comma
     structSymbol RParen
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
       Nothing  -> unexpected "Missing symbol"
-      Just sym -> return $ ICall sym $ map (IExpr . IVar) fnParams -- TODO paramery muzou mit
-                                                                   -- vselijaky typ
+      Just sym -> return $ ICall sym fnParams
 
 parseFExpr :: Parser FExpr
 parseFExpr = undefined
