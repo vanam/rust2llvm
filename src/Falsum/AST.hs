@@ -30,7 +30,7 @@ data Expr = BExpr BExpr
           | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
-data BExpr = Blit Bool
+data BExpr = BLit Bool
            | Not BExpr
            | BBinary BOp BExpr BExpr
            | IRBinary ROp IExpr IExpr

@@ -8,6 +8,10 @@ isIntLiteral :: Token -> Bool
 isIntLiteral (Literal (IntLit _ _)) = True
 isIntLiteral _ = False
 
+isFloatLiteral :: Token -> Bool
+isFloatLiteral (Literal (FloatLit _ _)) = True
+isFloatLiteral _ = False
+
 isLifeTime :: LifeTime -> Token -> Bool
 isLifeTime lt (LifeTime x) = lt == x
 isLifeTime _ _ = False
