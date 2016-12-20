@@ -3,6 +3,9 @@ module Falsum.AST where
 data Program = Program [ConstLet] [VarLet] [FnLet] FnLet
   deriving (Show, Eq, Ord)
 
+data TopLevel = TopFnLet FnLet | TopConstLet ConstLet | TopVarLet VarLet
+  deriving (Show, Eq, Ord)
+
 data FnLet = FnLet Symbol [Symbol] [Stmt]
   deriving (Show, Eq, Ord)
 

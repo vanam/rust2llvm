@@ -17,10 +17,10 @@ initialState = ParseState []
 
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
 maskState = changeState (const ()) (const $ ParseState [])
-
+{-
 data AST = Token [Token]
   deriving (Show, Eq)
-
+-}
 lookupSymbol :: ParseState -> String -> Maybe Symbol
 lookupSymbol (ParseState []) _ = Nothing
 lookupSymbol (ParseState (scope:scopes)) ident =
@@ -83,8 +83,8 @@ astTest p = either lexerError (P.parseTest $ maskState p) . tokenize "tokenizePa
   where
     lexerError = putStrLn . ("LEXER: " ++) . show
 
-parser :: Parser AST
-parser = fmap Token $ many anyToken
+parser :: Parser [TopLevel]
+parser = many1 $ choice [fmap TopFnLet $ parseFnLet, fmap TopConstLet $ parseConstLet, fmap TopVarLet $ parseVarLet]
 
 parseTest :: [TokenPos] -> IO ()
 parseTest = P.parseTest $ maskState $ parser
@@ -94,10 +94,10 @@ tokenizeParseTest = either lexerError parseTest . tokenize "tokenizeParseTest"
   where
     lexerError = putStrLn . ("LEXER: " ++) . show
 
-parse :: SourceName -> [TokenPos] -> Either ParseError AST
+parse :: SourceName -> [TokenPos] -> Either ParseError [TopLevel]
 parse = runParser parser $ ParseState []
 
-tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError AST)
+tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError [TopLevel])
 tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
   where
     lexerError = addErrorMessage (Message "LEXER complaints")
