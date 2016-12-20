@@ -2,6 +2,7 @@ module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Par
 
 import           ChangeState
 import           Data.Bifunctor
+import           Data.List
 import           Falsum.AST
 import           Falsum.Lexer
 import           Falsum.TokenTest
@@ -17,6 +18,7 @@ initialState = ParseState []
 
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
 maskState = changeState (const ()) (const $ ParseState [])
+
 {-
 data AST = Token [Token]
   deriving (Show, Eq)
@@ -83,8 +85,32 @@ astTest p = either lexerError (P.parseTest $ maskState p) . tokenize "tokenizePa
   where
     lexerError = putStrLn . ("LEXER: " ++) . show
 
-parser :: Parser [TopLevel]
-parser = many1 $ choice [fmap TopFnLet $ parseFnLet, fmap TopConstLet $ parseConstLet, fmap TopVarLet $ parseVarLet]
+isMain :: FnLet -> Bool
+isMain (FnLet (FnSymbol name Nothing) [] _) = name == "main"
+isMain _ = False
+
+parseTopLevel :: Parser [TopLevel]
+parseTopLevel = many1 $ choice
+                          [ fmap TopFnLet $ parseFnLet
+                          , fmap TopConstLet $ parseConstLet
+                          , fmap TopVarLet $ parseVarLet
+                          ]
+
+parser :: Parser Program
+parser = do
+  tops <- fmap split parseTopLevel
+  case find isMain (funs tops) of
+    Nothing   -> unexpected "Missing the main function with the right signature"
+    Just main -> return $ Program (consts tops) (vars tops) (filter (not . isMain) (funs tops)) main
+
+  where
+    split' (TopFnLet f) (cs, vs, fs) = (cs, vs, f : fs)
+    split' (TopConstLet c) (cs, vs, fs) = (c : cs, vs, fs)
+    split' (TopVarLet v) (cs, vs, fs) = (cs, v : vs, fs)
+    split = foldr split' ([], [], [])
+    consts (cs, _, _) = cs
+    vars (_, vs, _) = vs
+    funs (_, _, fs) = fs
 
 parseTest :: [TokenPos] -> IO ()
 parseTest = P.parseTest $ maskState $ parser
@@ -94,10 +120,10 @@ tokenizeParseTest = either lexerError parseTest . tokenize "tokenizeParseTest"
   where
     lexerError = putStrLn . ("LEXER: " ++) . show
 
-parse :: SourceName -> [TokenPos] -> Either ParseError [TopLevel]
+parse :: SourceName -> [TokenPos] -> Either ParseError Program
 parse = runParser parser $ ParseState []
 
-tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError [TopLevel])
+tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError Program)
 tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
   where
     lexerError = addErrorMessage (Message "LEXER complaints")
