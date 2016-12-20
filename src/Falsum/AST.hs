@@ -26,6 +26,7 @@ data Stmt = ConstLetStmt ConstLet
           | VarLetStmt VarLet
           | Loop [Stmt]
           | While BExpr [Stmt]
+          | Return (Maybe Expr)
           | Expr Expr
   deriving (Show, Eq, Ord)
 
@@ -90,14 +91,14 @@ data ROp = Less
          | NotEqual
   deriving (Show, Eq, Ord)
 
-data ParseState = ParseState [Scope]
+data ParseState = ParseState [Scope] (Maybe ValueType)
   deriving (Show, Eq, Ord)
 
 data Scope = Scope [Symbol]
   deriving (Show, Eq, Ord)
 
 data Symbol = VarSymbol String ValueType
-            | FnSymbol String (Maybe ValueType) -- return přes maybe?
+            | FnSymbol String (Maybe ValueType)
             | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
