@@ -32,20 +32,20 @@ liftError = runExceptT >=> either fail return
 
 simple :: Program
 simple = Program
-           [ ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))
-           , ConstLet (ConstSymbol "ANSWERE" Real (RealVal 420)) (FExpr (FLit 420))
+           [ ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
+           , ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
            ]
            [ VarLet (VarSymbol "M" Int) (IExpr (ILit 5))
            , VarLet (VarSymbol "Moo" Real) (FExpr (FLit 55.5))
            ]
-           [ FnLet (FnSymbol "foo" [] Nothing) []
+           [ FnLet (FnSymbol "foo" Nothing) []
                [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21)))]
            ]
-           (FnLet (FnSymbol "main" [] Nothing) []
-              [ VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (IVar (VarSymbol "M" Int)))) -- everything is mutable
+           (FnLet (FnSymbol "main" Nothing) []
+              [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (IVar (VarSymbol "M" Int)))) -- everything is mutable
 
-              , VarLetStmt
-                  (VarLet (VarSymbol "b" Int) (IExpr (IVar (ConstSymbol "ANSWER" Int (IntVal 42)))))
+              , VarLetStmt (VarLet (VarSymbol "b" Int) (IExpr (ILit 42)))-- ANSWER value placed
+                                                                         -- directly here
               ])
 
 defaultInstrMeta :: I.InstructionMetadata
@@ -63,9 +63,6 @@ i32Lit = C.Int 32
 f32Lit :: Float -> C.Constant
 f32Lit = C.Float . F.Single
 
-f64Lit :: Double -> C.Constant
-f64Lit = C.Float . F.Double
-
 defaultAddrSpace :: AddrSpace
 defaultAddrSpace = AddrSpace 0
 
@@ -76,8 +73,8 @@ block name instructions terminator = AST.BasicBlock  -- https://github.com/bscar
                                        instructions
                                        terminator
 
-body :: [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.BasicBlock]
-body instructions terminator = [block "" instructions terminator]
+body :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.BasicBlock]
+body name instructions terminator = [block name instructions terminator]
 
 -- TODO
 simple_foo :: AST.Global
@@ -98,6 +95,7 @@ simple_foo = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-
                Nothing
                Nothing
                (body
+                  "entry-block"
                   [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
                   , I.Do $ I.Store
                              False
@@ -133,6 +131,7 @@ simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
                 Nothing
                 Nothing
                 (body
+                   "entry-block"
                    [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
                    , (AST.Name "b") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
                    , I.Do $ I.Store
@@ -159,10 +158,10 @@ simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm
 
 constLetInAST :: ConstLet -> AST.Global
 {-|
-  ConstLet (ConstSymbol "ANSWER" Int (IntVal 42)) (IExpr (ILit 42))
-  ConstLet (ConstSymbol "ANSWERE" Real (RealVal 420)) (FExpr (FLit 420)
+  ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
+  ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
 -}
-constLetInAST (ConstLet sym _) = globalGen sym -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+constLetInAST (ConstLet sym val) = globalGen sym val-- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
   where
     gen t n v = AST.GlobalVariable
@@ -182,8 +181,8 @@ constLetInAST (ConstLet sym _) = globalGen sym -- https://github.com/bscarlet/ll
     genInt name val = gen T.i32 name $ i32Lit $ toInteger val
     genFloat name val = gen T.float name $ f32Lit val
     enrich name = "const"
-    globalGen (ConstSymbol s Int (IntVal v)) = genInt (enrich s) v
-    globalGen (ConstSymbol s Real (RealVal v)) = genFloat (enrich s) v
+    globalGen (ConstSymbol s Int) (IntVal v) = genInt (enrich s) v
+    globalGen (ConstSymbol s Real) (RealVal v) = genFloat (enrich s) v
 
 constLetListInAST :: [ConstLet] -> [AST.Global]
 constLetListInAST = map constLetInAST
@@ -213,15 +212,14 @@ staticVarLetInAST (VarLet sym expr) = globalGen sym expr
                   align4
     genInt name val = gen T.i32 name $ i32Lit $ toInteger val
     genFloat name val = gen T.float name $ f32Lit val
-    genDouble name val = gen T.double name $ f64Lit val
     globalGen (VarSymbol s Int) (IExpr (ILit v)) = genInt s v
-    globalGen (VarSymbol s Real) (FExpr (FLit v)) = genDouble s v
+    globalGen (VarSymbol s Real) (FExpr (FLit v)) = genFloat s v
 
 staticVarLetListInAST :: [VarLet] -> [AST.Global]
 staticVarLetListInAST = map staticVarLetInAST
 
 fnLetInAST :: FnLet -> AST.Global
-fnLetInAST f@(FnLet (FnSymbol name argTypes ret) args statements) = globalGen name ret
+fnLetInAST f@(FnLet (FnSymbol name ret) args statements) = globalGen name ret
   where
     gen t n = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
@@ -239,7 +237,7 @@ fnLetInAST f@(FnLet (FnSymbol name argTypes ret) args statements) = globalGen na
                 defaultAlignment
                 Nothing
                 Nothing
-                (body []
+                (body "entry-block" []
                    --  TODO body
                    (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
 
@@ -255,13 +253,10 @@ fnLetListInAST = map fnLetInAST
 
 -- (FnLet (FnSymbol "main" [] Nothing) [] [])
 mainToPseudomain :: FnLet -> FnLet
-mainToPseudomain main@(FnLet (FnSymbol name argTypes ret) args statements) = FnLet
-                                                                               (FnSymbol
-                                                                                  "falsum_main"
-                                                                                  argTypes
-                                                                                  ret)
-                                                                               args
-                                                                               statements
+mainToPseudomain main@(FnLet (FnSymbol name ret) args statements) = FnLet
+                                                                      (FnSymbol "falsum_main" ret)
+                                                                      args
+                                                                      statements
 
 mainInAST :: FnLet -> [AST.Global]
 mainInAST m = [ fnLetInAST $ mainToPseudomain m
@@ -282,6 +277,7 @@ mainInAST m = [ fnLetInAST $ mainToPseudomain m
                   Nothing
                   Nothing
                   (body
+                     "entry-block"
                      [ I.Do $ I.Call
                                 Nothing
                                 CC.C
@@ -302,10 +298,10 @@ mainInAST m = [ fnLetInAST $ mainToPseudomain m
               ]
 
 programInAST :: Program -> [AST.Global]
-programInAST program@(Program constLetList staticVarLetList fnLetList main) = constLetListInAST
-                                                                                constLetList ++
-                                                                              staticVarLetListInAST
+programInAST program@(Program constLetList staticVarLetList fnLetList main) = staticVarLetListInAST
                                                                                 staticVarLetList ++
+                                                                              constLetListInAST
+                                                                                constLetList ++
                                                                               fnLetListInAST
                                                                                 fnLetList `debug` "OK 2" ++
                                                                               mainInAST main `debug` "OK 4"
