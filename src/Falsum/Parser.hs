@@ -351,7 +351,7 @@ parseElse = do
   parseBlock
 
 parseITerm :: Parser IExpr
-parseITerm = choice [inParens parseIExpr, parseILit, parseIVar, parseICall] <?> "simple expression" -- TODO better fail msg + add parseIIf -- if expression with integer result (with required else branch?)
+parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar] <?> "simple expression" -- TODO better fail msg + add parseIIf -- if expression with integer result (with required else branch?)
 
 
 iBinaryTable :: [[E.Operator [TokenPos] ParseState Identity IExpr]]
@@ -390,7 +390,6 @@ parseICall =
   do
     fnName <- parseSymbolName
     fnParams <- inParens $ parseExpr `sepBy` comma
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
       Nothing  -> unexpected "Missing symbol"
