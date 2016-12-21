@@ -343,7 +343,6 @@ parseIVar :: Parser IExpr
 parseIVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
@@ -408,7 +407,6 @@ parseFVar :: Parser FExpr
 parseFVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
@@ -479,7 +477,6 @@ parseBVar :: Parser BExpr
 parseBVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
