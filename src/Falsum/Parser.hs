@@ -263,7 +263,10 @@ parseFnLet =
     fnReturnType <- optionMaybe parseReturnType
     state <- getState
     putState $ setReturnTypeOfScope state fnReturnType
+    modifyState addNewScope
+    addParamsToScope fnParams
     fnBlock <- parseBlock
+    modifyState removeCurrentScope
     putState $ addSymbolToScope (FnSymbol fnName fnReturnType) state
     if curretScope state > 1
       then unexpected "Defining function out of root scope"
@@ -272,6 +275,7 @@ parseFnLet =
 
   where
     curretScope (ParseState scopes _) = length scopes
+    addParamsToScope = map (modifyState . addSymbolToScope)
 
 parseArg :: Parser Symbol
 parseArg =
