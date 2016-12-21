@@ -46,8 +46,10 @@ removeCurrentScope :: ParseState -> ParseState
 removeCurrentScope (ParseState scopes returnType) = ParseState (tail scopes) returnType
 
 addSymbolToScope :: Symbol -> ParseState -> ParseState
-addSymbolToScope sym (ParseState scopes returnType) =
-  ParseState ([addSymbolToScope' (head scopes) sym] ++ tail scopes) returnType
+addSymbolToScope sym (ParseState (scopesHead:scopesTail) returnType) =
+  ParseState (addSymbolToScope' scopesHead sym : scopesTail) returnType
+addSymbolToScope sym (ParseState [] returnType) =
+  ParseState [addSymbolToScope' (Scope []) sym] returnType
 
 addSymbolToScope' :: Scope -> Symbol -> Scope
 addSymbolToScope' (Scope scope) sym = Scope (scope ++ [sym])
@@ -198,6 +200,8 @@ parseVarLet =
     operator EqSign
     valueExpr <- parseExpr
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (VarSymbol symbName ty) state
     return $ VarLet (VarSymbol symbName ty) valueExpr
 
 parseBinVarLet :: Parser VarLet
@@ -207,6 +211,8 @@ parseBinVarLet =
     operator EqSign
     valueExpr <- parseBExpr
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (VarSymbol symbName Bool) state
     return $ VarLet (VarSymbol symbName Bool) $ getExpr valueExpr
 
   where
@@ -230,6 +236,8 @@ parseConstLet =
     operator EqSign
     valueLit <- parseLiteral
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (ConstSymbol symbName ty) state
     return $ ConstLet (ConstSymbol symbName ty) valueLit
 
 parseLiteral :: Parser Value
@@ -256,6 +264,7 @@ parseFnLet =
     state <- getState
     putState $ setReturnTypeOfScope state fnReturnType
     fnBlock <- parseBlock
+    putState $ addSymbolToScope (FnSymbol fnName fnReturnType) state
     if curretScope state > 1
       then unexpected "Defining function out of root scope"
       else return ()

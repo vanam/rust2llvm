@@ -8,6 +8,7 @@ fn foo (){
 
 fn main() {
     1 + 2 * 4//;
-    //let a: i32 = M;
-    //let mut b: i32 = ANSWER;
+    let a: i32 = M;
+    let mut b: i32 = ANSWER;
+    //foo(a);
 }
