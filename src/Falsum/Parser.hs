@@ -360,6 +360,7 @@ parseVCall =
   do
     fnName <- parseSymbolName
     fnParams <- inParens $ parseExpr `sepBy` comma
+    structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
       Nothing  -> unexpected "Missing symbol"
