@@ -37,7 +37,7 @@ data Expr = BExpr BExpr
   deriving (Show, Eq, Ord)
 
 data BExpr = BLit Bool
-           | Not BExpr
+           | BNot BExpr
            | BBinary BOp BExpr BExpr
            | IRBinary ROp IExpr IExpr
            | FRBinary ROp FExpr FExpr
@@ -64,7 +64,6 @@ data FExpr = FLit Float
 
 data BOp = BAnd
          | BOr
-         | BXor
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus
