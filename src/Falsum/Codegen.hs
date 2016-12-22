@@ -387,10 +387,10 @@ topLevelDefs program = [defaultfunctionAttributes] ++ fmap AST.GlobalDefinition
   TODO(optional) Set module DataLayout
   TODO(optional) Set module TargetTriple
 -}
-moduleInAST :: Program -> AST.Module
-moduleInAST program = highLevelModule `debug` PP.showPretty highLevelModule
+moduleInAST :: String -> Program -> AST.Module
+moduleInAST filename program = highLevelModule `debug` PP.showPretty highLevelModule
   where
-    highLevelModule = AST.Module "01_simple" Nothing Nothing $ topLevelDefs program
+    highLevelModule = AST.Module filename Nothing Nothing $ topLevelDefs program
 
 {-main =
     LLVMCtx.withContext $ \ctx ->
@@ -402,12 +402,12 @@ moduleInAST program = highLevelModule `debug` PP.showPretty highLevelModule
 
     where
         file = LLVMMod.File "Rx-linked-cg.bc"-}
-asm :: Program -> IO String
-asm program = CTX.withContext $ \ctx ->
-  liftError $ MOD.withModuleFromAST ctx (moduleInAST program) MOD.moduleLLVMAssembly
+asm :: String -> Program -> IO String
+asm filename program = CTX.withContext $ \ctx ->
+  liftError $ MOD.withModuleFromAST ctx (moduleInAST filename program) MOD.moduleLLVMAssembly
 
-main :: IO ()
-main = do
+codegen :: String -> Program -> IO ()
+codegen filename ast = do
   --putStrLn $ show problem
-  llvmIR <- asm simple
+  llvmIR <- asm filename ast
   putStrLn llvmIR
