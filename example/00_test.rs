@@ -10,7 +10,7 @@ fn bar (b:i32) -> i32 {
     let a: i32 = 21;
     return (a+a);
     return 1 * 1;
-    return a;
+    return b;
 }
 
 

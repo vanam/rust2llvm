@@ -275,7 +275,7 @@ parseFnLet =
 
   where
     curretScope (ParseState scopes _) = length scopes
-    addParamsToScope = map (modifyState . addSymbolToScope)
+    addParamsToScope = mapM_ (modifyState . addSymbolToScope)
 
 parseArg :: Parser Symbol
 parseArg =
