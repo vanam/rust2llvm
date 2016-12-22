@@ -367,8 +367,9 @@ parseVCall =
       Just sym -> return $ VCall sym fnParams
 
 parseITerm :: Parser IExpr
-parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar] <?> "simple expression" -- TODO better fail msg + add parseIIf -- if expression with integer result (with required else branch?)
-
+parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar]
+             <?> "simple int expression" -- TODO add parseIIf -- if expression with integer result
+                                         -- (with required else branch?)
 
 iBinaryTable :: [[E.Operator [TokenPos] ParseState Identity IExpr]]
 iBinaryTable = [ [prefix Minus INeg]
@@ -383,7 +384,7 @@ iBinaryTable = [ [prefix Minus INeg]
                ] -- TODO optionally shift operators as postfix operators?
 
 parseIExpr :: Parser IExpr
-parseIExpr = E.buildExpressionParser iBinaryTable parseITerm <?> "expression" -- TODO better fail msg
+parseIExpr = E.buildExpressionParser iBinaryTable parseITerm <?> "complex int expression"
 
 parseILit :: Parser IExpr
 parseILit = ILit . getVal <$> intLiteral
@@ -412,8 +413,9 @@ parseICall =
       Just sym -> return $ ICall sym fnParams
 
 parseFTerm :: Parser FExpr
-parseFTerm = choice [inParens parseFExpr, parseFLit, parseFVar, parseFCall] <?> "simple expression" -- TODO better fail msg + add parseFIf -- if expression with real result (with required else branch?)
-
+parseFTerm = choice [inParens parseFExpr, parseFLit, parseFVar, parseFCall]
+             <?> "simple float expression" -- TODO add parseFIf -- if expression with real result
+                                           -- (with required else branch?)
 
 fBinaryTable :: [[E.Operator [TokenPos] ParseState Identity FExpr]]
 fBinaryTable = [ [prefix Minus FNeg]
@@ -422,7 +424,8 @@ fBinaryTable = [ [prefix Minus FNeg]
                ]
 
 parseFExpr :: Parser FExpr
-parseFExpr = E.buildExpressionParser fBinaryTable parseFTerm <?> "expression" -- TODO better fail msg
+parseFExpr = E.buildExpressionParser fBinaryTable parseFTerm
+             <?> "complex float expression"
 
 parseFLit :: Parser FExpr
 parseFLit = FLit . getVal <$> floatLiteral
@@ -453,8 +456,9 @@ parseFCall =
 
 parseBTerm :: Parser BExpr
 parseBTerm = choice
-               [inParens parseBExpr, parseTrue, parseFalse, parseBVar, parseBCall, parseRelation] <?> "simple expression" -- TODO better fail msg + add parseBIf -- if expression with boolean result (with required else branch?)
-
+               [inParens parseBExpr, parseTrue, parseFalse, parseBVar, parseBCall, parseRelation]
+             <?> "simple bool expression" -- TODO add parseBIf -- if expression with boolean result
+                                          -- (with required else branch?)
 
 bBinaryTable :: [[E.Operator [TokenPos] ParseState Identity BExpr]]
 bBinaryTable = [ [prefix Not BNot]
@@ -463,7 +467,8 @@ bBinaryTable = [ [prefix Not BNot]
                ]
 
 parseBExpr :: Parser BExpr
-parseBExpr = E.buildExpressionParser bBinaryTable parseBTerm <?> "expression" -- TODO better fail msg
+parseBExpr = E.buildExpressionParser bBinaryTable parseBTerm
+             <?> "complex bool expression"
 
 parseTrue :: Parser BExpr
 parseTrue =
