@@ -319,24 +319,25 @@ parseWhile = do
 parseReturn :: Parser Stmt
 parseReturn = do
   keyword Falsum.Lexer.Return
-  state <- getState
-  case state of
-    ParseState _ Nothing -> do
-      structSymbol Semicolon
+  r <- rType <$> getState
+  case r of
+    Nothing -> do
+      structSymbol Semicolon <|> mismatch r
       return $ Falsum.AST.Return Nothing
-    ParseState _ (Just Int) -> do
-      expr <- parseIExpr
+    Just Int -> do
+      expr <- parseIExpr <|> mismatch r
       structSymbol Semicolon
       return $ Falsum.AST.Return (Just (IExpr expr))
-    ParseState _ (Just Real) -> do
-      expr <- parseFExpr
+    Just Real -> do
+      expr <- parseFExpr <|> mismatch r
       structSymbol Semicolon
       return $ Falsum.AST.Return (Just (FExpr expr))
-    ParseState _ (Just Bool) -> do
-      expr <- parseBExpr
+    Just Bool -> do
+      expr <- parseBExpr <|> mismatch r
       structSymbol Semicolon
       return $ Falsum.AST.Return (Just (BExpr expr))
-    _ -> unexpected "Return type does not match"
+  where rType (ParseState _ r) = r
+        mismatch r = unexpected $ "Return type does not match, expected: " ++ show r
 
 parseExpr :: Parser Expr
 parseExpr = choice
@@ -363,7 +364,7 @@ parseVCall =
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing function symbol: " ++ show fnName
       Just sym -> return $ VCall sym fnParams
 
 parseITerm :: Parser IExpr
@@ -399,7 +400,7 @@ parseIVar =
     symbName <- parseSymbolName
     state <- getState
     case lookupSymbol state symbName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing symbol: " ++ show symbName
       Just sym -> return $ IVar sym
 
 parseICall :: Parser IExpr
@@ -409,7 +410,7 @@ parseICall =
     fnParams <- inParens $ parseExpr `sepBy` comma
     state <- getState
     case lookupSymbol state fnName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing function symbol: " ++ show fnName
       Just sym -> return $ ICall sym fnParams
 
 parseFTerm :: Parser FExpr
@@ -440,7 +441,7 @@ parseFVar =
     symbName <- parseSymbolName
     state <- getState
     case lookupSymbol state symbName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing symbol: " ++ show symbName
       Just sym -> return $ FVar sym
 
 parseFCall :: Parser FExpr
@@ -451,7 +452,7 @@ parseFCall =
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing function symbol: " ++ show fnName
       Just sym -> return $ FCall sym fnParams
 
 parseBTerm :: Parser BExpr
@@ -488,7 +489,7 @@ parseBVar =
     symbName <- parseSymbolName
     state <- getState
     case lookupSymbol state symbName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing symbol: " ++ show symbName
       Just sym -> return $ BVar sym
 
 parseBCall :: Parser BExpr
@@ -499,7 +500,7 @@ parseBCall =
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
-      Nothing  -> unexpected "Missing symbol"
+      Nothing  -> unexpected $ "Missing function symbol: " ++ show fnName
       Just sym -> return $ BCall sym fnParams
 
 parseRelation :: Parser BExpr
