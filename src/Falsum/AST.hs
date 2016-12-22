@@ -97,7 +97,6 @@ data ParseState = ParseState [Scope] (Maybe ValueType)
 data Scope = Scope [Symbol]
   deriving (Show, Eq, Ord)
 
-
 data Symbol = GlobalVarSymbol String ValueType
             | VarSymbol String ValueType
             | FnSymbol String (Maybe ValueType)
