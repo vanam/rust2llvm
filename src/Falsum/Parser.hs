@@ -299,6 +299,7 @@ parseStmt = choice
               , parseLoop
               , parseWhile
               , parseReturn
+              , parseVCall
               , fmap Expr $ parseExpr
               ]
 
@@ -353,6 +354,16 @@ parseElse :: Parser [Stmt]
 parseElse = do
   keyword Else
   parseBlock
+
+parseVCall :: Parser Stmt
+parseVCall =
+  do
+    fnName <- parseSymbolName
+    fnParams <- inParens $ parseExpr `sepBy` comma
+    state <- getState
+    case lookupSymbol state fnName of
+      Nothing  -> unexpected "Missing symbol"
+      Just sym -> return $ VCall sym fnParams
 
 parseITerm :: Parser IExpr
 parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar] <?> "simple expression" -- TODO better fail msg + add parseIIf -- if expression with integer result (with required else branch?)
