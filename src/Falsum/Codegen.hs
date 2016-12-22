@@ -40,26 +40,27 @@ simple = Program
            , VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5))
            ]
            [ FnLet (FnSymbol "foo" Nothing) []
-               [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21))), Return Nothing]-- return
-                                                                                          -- void
+               [ VarLetStmt
+                   (VarLet (VarSymbol "a" Int)
+                      (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 21))))
+               , Return Nothing
+               ]
            , FnLet (FnSymbol "maine" (Just Int)) []
                [VCall (FnSymbol "foo" Nothing) [], Return (Just (IExpr (ILit 0)))]
            ]
            (FnLet (FnSymbol "main" Nothing) []
               [ VarLetStmt
                   (VarLet (VarSymbol "a" Int)
-                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))) -- everything is mutable
-
+                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int)))))
               , VarLetStmt
                   (VarLet (VarSymbol "b" Int)
-                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42)))) -- ANSWER value placed
+                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
+              , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
+              , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
               , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
               , VCall (FnSymbol "foo" Nothing) []
-              ,
-              -- directly here
-              Return Nothing
-              ]-- return void
-            )
+              , Return Nothing
+              ])
 
 defaultInstrMeta :: I.InstructionMetadata
 defaultInstrMeta = []
@@ -104,20 +105,29 @@ generateIExpression iAssign
       ]
   -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))
   | (IAssign (LValue (VarSymbol name Int)) (IVar (GlobalVarSymbol name2 _))) <- iAssign =
-      [ I.Do $ I.Store
+      [ N.UnName 1 I.:= I.Load
+                          False
+                          (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
+                          Nothing
+                          align4
+                          defaultInstrMeta
+      , I.Do $ I.Store
                  False
                  (O.LocalReference T.i32 (AST.Name name))
-                 (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
+                 (O.LocalReference T.i32 (N.UnName 1))
                  Nothing
                  align4
                  defaultInstrMeta
       ]
   -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
   | (IAssign (LValue (VarSymbol name Int)) (IVar (VarSymbol name2 _))) <- iAssign =
-      [ I.Do $ I.Store
+      [ N.UnName 1 I.:= I.Load False (O.LocalReference T.i32 (AST.Name name2)) Nothing align4
+                          defaultInstrMeta
+      , I.Do $ I.Store
                  False
                  (O.LocalReference T.i32 (AST.Name name))
-                 (O.LocalReference T.i32 (AST.Name name2))
+                 --  (O.LocalReference T.i32 (AST.Name name2))
+                 (O.LocalReference T.i32 (N.UnName 1))
                  Nothing
                  align4
                  defaultInstrMeta
