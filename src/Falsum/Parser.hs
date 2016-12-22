@@ -16,10 +16,10 @@ import           Text.ParserCombinators.Parsec.Error
 type Parser a = Parsec [TokenPos] ParseState a
 
 initialState :: ParseState
-initialState = ParseState [] Nothing
+initialState = ParseState [Scope []] Nothing
 
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
-maskState = changeState (const ()) (const $ ParseState [] Nothing)
+maskState = changeState (const ()) (const initialState)
 
 lookupSymbol :: ParseState -> String -> Maybe Symbol
 lookupSymbol (ParseState [] _) _ = Nothing
@@ -31,9 +31,10 @@ lookupSymbol (ParseState (scope:scopes) returnType) ident =
         where
           symName =
                      case sym of
-                       VarSymbol name _   -> name
-                       ConstSymbol name _ -> name
-                       FnSymbol name _    -> name
+                       GlobalVarSymbol name _ -> name
+                       VarSymbol name _       -> name
+                       ConstSymbol name _     -> name
+                       FnSymbol name _        -> name
       maybeSym = search scope ident
   in case maybeSym of
     Nothing -> lookupSymbol (ParseState scopes returnType) ident
@@ -53,11 +54,10 @@ removeCurrentScope (ParseState scopes returnType) = ParseState (tail scopes) ret
 addSymbolToScope :: Symbol -> ParseState -> ParseState
 addSymbolToScope sym (ParseState (scopesHead:scopesTail) returnType) =
   ParseState (addSymbolToScope' scopesHead sym : scopesTail) returnType
-addSymbolToScope sym (ParseState [] returnType) =
-  ParseState [addSymbolToScope' (Scope []) sym] returnType
+addSymbolToScope _ st = st
 
 addSymbolToScope' :: Scope -> Symbol -> Scope
-addSymbolToScope' (Scope scope) sym = Scope (scope ++ [sym])
+addSymbolToScope' (Scope scope) sym = Scope (sym : scope)
 
 setReturnTypeOfScope :: ParseState -> Maybe ValueType -> ParseState
 setReturnTypeOfScope (ParseState scopes _) valueType = ParseState scopes valueType
@@ -129,7 +129,7 @@ tokenizeParseTest = either lexerError parseTest . tokenize "tokenizeParseTest"
     lexerError = putStrLn . ("LEXER: " ++) . show
 
 parse :: SourceName -> [TokenPos] -> Either ParseError Program
-parse = runParser parser $ ParseState [] Nothing
+parse = runParser parser initialState
 
 tokenizeParse :: SourceName -> String -> Either ParseError (Either ParseError Program)
 tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
@@ -196,6 +196,19 @@ postfix op con = E.Postfix $ operator op *> pure con
 comma :: Parser ()
 comma = structSymbol Comma
 
+currentScope :: ParseState -> Int
+currentScope (ParseState scopes _) = length scopes
+
+forgeSymbol :: String -> ValueType -> Parser Symbol
+forgeSymbol symbName ty =
+  do
+    state <- getState
+    return $ (if currentScope state == 1
+                then GlobalVarSymbol
+                else VarSymbol)
+               symbName
+               ty
+
 parseVarLet :: Parser VarLet
 parseVarLet =
   do
@@ -206,8 +219,9 @@ parseVarLet =
     valueExpr <- parseExpr
     structSymbol Semicolon
     state <- getState
-    putState $ addSymbolToScope (VarSymbol symbName ty) state
-    return $ VarLet (VarSymbol symbName ty) valueExpr
+    forgedSymbol <- forgeSymbol symbName ty
+    putState $ addSymbolToScope forgedSymbol state
+    return $ VarLet forgedSymbol valueExpr
 
 parseBinVarLet :: Parser VarLet
 parseBinVarLet =
@@ -217,8 +231,9 @@ parseBinVarLet =
     valueExpr <- parseBExpr
     structSymbol Semicolon
     state <- getState
-    putState $ addSymbolToScope (VarSymbol symbName Bool) state
-    return $ VarLet (VarSymbol symbName Bool) $ getExpr valueExpr
+    forgedSymbol <- forgeSymbol symbName Bool
+    putState $ addSymbolToScope forgedSymbol state
+    return $ VarLet forgedSymbol $ getExpr valueExpr
 
   where
     getExpr :: BExpr -> Expr
@@ -263,23 +278,22 @@ parseFnLet :: Parser FnLet
 parseFnLet =
   do
     keyword Fn
+    state <- getState
+    if currentScope state > 1
+      then unexpected "Defining function out of root scope"
+      else return ()
     fnName <- parseSymbolName
     fnParams <- inParens $ parseArg `sepBy` comma
     fnReturnType <- optionMaybe parseReturnType
-    state <- getState
     putState $ setReturnTypeOfScope state fnReturnType
     modifyState addNewScope
     addParamsToScope fnParams
     fnBlock <- parseBlock
     modifyState removeCurrentScope
     putState $ addSymbolToScope (FnSymbol fnName fnReturnType) state
-    if curretScope state > 1
-      then unexpected "Defining function out of root scope"
-      else return ()
     return $ FnLet (FnSymbol fnName fnReturnType) fnParams fnBlock
 
   where
-    curretScope (ParseState scopes _) = length scopes
     addParamsToScope = mapM_ (modifyState . addSymbolToScope)
 
 parseArg :: Parser Symbol
