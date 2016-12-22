@@ -42,12 +42,16 @@ simple = Program
 
            ]
            (FnLet (FnSymbol "main" Nothing) []
-              [ VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (IVar (GlobalVarSymbol "M" Int)))) -- everything is mutable
+              [ VarLetStmt
+                  (VarLet (VarSymbol "a" Int)
+                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))) -- everything is mutable
 
-              , VarLetStmt (VarLet (VarSymbol "b" Int) (IExpr (ILit 42)))-- ANSWER value placed
-              , VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (IVar (VarSymbol "b" Int))))
+              , VarLetStmt
+                  (VarLet (VarSymbol "b" Int)
+                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42)))) -- ANSWER value placed
+              , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
               ,
-                                                       -- directly here
+                                         -- directly here
               Return Nothing
               ]-- return void
             )
@@ -81,45 +85,69 @@ body :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.Basi
 body name instructions terminator = [block name instructions terminator]
 
 -- TODO Generate all integer expressions, not just literal
-generateIExpression :: String -> IExpr -> [I.Named I.Instruction]
-generateIExpression name (ILit i) = [I.Do $ I.Store
-                                              False
-                                              (O.LocalReference T.i32 (AST.Name name))
-                                              (O.ConstantOperand $ i32Lit i)
-                                              Nothing
-                                              align4
-                                              defaultInstrMeta]
-generateIExpression name (IVar (GlobalVarSymbol name2 _)) = [I.Do $ I.Store
-                                                                      False
-                                                                      (O.LocalReference T.i32 (AST.Name name))
-                                                                      (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
-                                                                      Nothing
-                                                                      align4
-                                                                      defaultInstrMeta]
-generateIExpression name (IVar (VarSymbol name2 _)) = [I.Do $ I.Store
-                                                                False
-                                                                (O.LocalReference T.i32 (AST.Name name))
-                                                                (O.LocalReference T.i32 (AST.Name name2))
-                                                                Nothing
-                                                                align4
-                                                                defaultInstrMeta]
+generateIExpression :: IExpr -> [I.Named I.Instruction]
+-- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
+generateIExpression (IAssign (LValue (VarSymbol name Int)) (ILit val)) = [ I.Do $ I.Store
+                                                                                    False
+                                                                                    (O.LocalReference
+                                                                                       T.i32
+                                                                                       (AST.Name
+                                                                                          name))
+                                                                                    (O.ConstantOperand $ i32Lit
+                                                                                                           val)
+                                                                                    Nothing
+                                                                                    align4
+                                                                                    defaultInstrMeta
+                                                                         ]
+-- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))
+generateIExpression (IAssign (LValue (VarSymbol name Int)) (IVar (GlobalVarSymbol name2 _))) = [ I.Do $ I.Store
+                                                                                                          False
+                                                                                                          (O.LocalReference
+                                                                                                             T.i32
+                                                                                                             (AST.Name
+                                                                                                                name))
+                                                                                                          (O.ConstantOperand
+                                                                                                             (C.GlobalReference
+                                                                                                                T.i32
+                                                                                                                (AST.Name
+                                                                                                                   name2)))
+                                                                                                          Nothing
+                                                                                                          align4
+                                                                                                          defaultInstrMeta
+                                                                                               ]
+-- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
+generateIExpression (IAssign (LValue (VarSymbol name Int)) (IVar (VarSymbol name2 _))) = [ I.Do $ I.Store
+                                                                                                    False
+                                                                                                    (O.LocalReference
+                                                                                                       T.i32
+                                                                                                       (AST.Name
+                                                                                                          name))
+                                                                                                    (O.LocalReference
+                                                                                                       T.i32
+                                                                                                       (AST.Name
+                                                                                                          name2))
+                                                                                                    Nothing
+                                                                                                    align4
+                                                                                                    defaultInstrMeta
+                                                                                         ]
+generateIExpression a = []
 
 -- TODO Generate all expressions
-generateExpression :: String -> Expr -> [I.Named I.Instruction]
-generateExpression name (IExpr expr) = generateIExpression name expr
-generateExpression name expr = []
+generateExpression :: Expr -> [I.Named I.Instruction]
+generateExpression (IExpr expr) = generateIExpression expr
+-- generateExpression expr = []
 
+-- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
--- generateStatement a = [] VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21)))
+-- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement (VarLetStmt (VarLet (VarSymbol name Int) expr)) = (AST.Name name I.:= I.Alloca
                                                                                           T.i32
                                                                                           Nothing
                                                                                           align4
                                                                                           defaultInstrMeta) : generateExpression
-                                                                                                                name
                                                                                                                 expr
+generateStatement (Expr e) = generateExpression e
 
--- TODO
 generateStatements :: [Stmt] -> [I.Named I.Instruction]
 generateStatements = concatMap generateStatement
 
