@@ -299,7 +299,7 @@ parseStmt = choice
               , parseLoop
               , parseWhile
               , parseReturn
-              , fmap Expr $ parseExpr
+              , (fmap Expr $ parseExpr) <* structSymbol Semicolon
               ]
 
 parseLoop :: Parser Stmt

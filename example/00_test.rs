@@ -15,11 +15,11 @@ fn bar (b:i32) -> i32 {
 
 
 fn main() {
-    1 + 2 * 4//;
+    1 + 2 * 4;
     let a: i32 = M;
     let b: i32 = 1 + 2 * 3;
     let mut b: i32 = ANSWER;
-    foo()//;
+    foo();
     let c: i32 = bar(a);
     let d: i32 = bar(a) * 2;
     //c = bar(a) * bar(a);
