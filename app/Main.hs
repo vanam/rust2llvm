@@ -2,6 +2,7 @@ module Main where
 
 import           Falsum.Codegen
 import           Falsum.Parser
+import           Falsum.Transform
 import           System.Directory (doesFileExist)
 import           System.IO        (hFlush, stdout)
 
@@ -34,7 +35,9 @@ main = do
         Right (Left parserError) -> do
           putStrLn "Parser fails:"
           putStrLn . show $ parserError
-        Right (Right ast) -> codegen filename ast
+        Right (Right ast) -> do
+          randomSuffix <- randomString 20
+          codegen filename (transformProgram ("main_" ++ randomSuffix) ast)
     else putStrLn "The file doesn't exist."
   continue <- yesno "Continue with another file"
   if continue
