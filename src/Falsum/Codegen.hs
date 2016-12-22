@@ -38,8 +38,11 @@ simple = Program
            [ VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
            , VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5))
            ]
-           [FnLet (FnSymbol "foo" Nothing) [] [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21))), Return Nothing]-- return void
-
+           [ FnLet (FnSymbol "foo" Nothing) []
+               [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21))), Return Nothing]-- return
+                                                                                          -- void
+           , FnLet (FnSymbol "maine" (Just Int)) []
+               [VCall (FnSymbol "foo" Nothing) [], Return (Just (IExpr (ILit 0)))]
            ]
            (FnLet (FnSymbol "main" Nothing) []
               [ VarLetStmt
@@ -50,8 +53,9 @@ simple = Program
                   (VarLet (VarSymbol "b" Int)
                      (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42)))) -- ANSWER value placed
               , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
+              , VCall (FnSymbol "foo" Nothing) []
               ,
-                                         -- directly here
+              -- directly here
               Return Nothing
               ]-- return void
             )
@@ -135,7 +139,6 @@ generateIExpression a = []
 -- TODO Generate all expressions
 generateExpression :: Expr -> [I.Named I.Instruction]
 generateExpression (IExpr expr) = generateIExpression expr
--- generateExpression expr = []
 
 -- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
@@ -146,7 +149,24 @@ generateStatement (VarLetStmt (VarLet (VarSymbol name Int) expr)) = (AST.Name na
                                                                                           align4
                                                                                           defaultInstrMeta) : generateExpression
                                                                                                                 expr
+-- Expr (...)
 generateStatement (Expr e) = generateExpression e
+-- VCall (FnSymbol "foo" Nothing) [] -- TODO Pass arguments
+generateStatement (VCall (FnSymbol name Nothing) args) = [ I.Do $ I.Call
+                                                                    Nothing
+                                                                    CC.C
+                                                                    []
+                                                                    (Right $ O.ConstantOperand $ C.GlobalReference
+                                                                                                   (T.FunctionType
+                                                                                                      T.void
+                                                                                                      []
+                                                                                                      False)
+                                                                                                   (N.Name
+                                                                                                      name))
+                                                                    []
+                                                                    [Left $ A.GroupID 0]
+                                                                    defaultInstrMeta
+                                                         ]
 
 generateStatements :: [Stmt] -> [I.Named I.Instruction]
 generateStatements = concatMap generateStatement
@@ -349,32 +369,21 @@ fnLetInAST f@(FnLet (FnSymbol name retType) args statements) = globalGen name re
 fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
 
+-- TODO Move this to the parser
 mainToPseudomain :: FnLet -> FnLet
 mainToPseudomain main@(FnLet (FnSymbol name ret) args statements) = FnLet
                                                                       (FnSymbol "falsum_main" ret)
                                                                       args
                                                                       statements
 
+-- TODO Move this to the parser
 mainInAST :: FnLet -> [AST.Global]
-mainInAST m = [fnLetInAST $ mainToPseudomain m, AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
-
-                                                  L.External
-                                                  V.Default
-                                                  Nothing
-                                                  CC.C
-                                                  []
-                                                  T.i32
-                                                  (AST.Name "main")
-                                                  ([], False)
-                                                  [Left $ A.GroupID 0]
-                                                  Nothing
-                                                  Nothing
-                                                  defaultAlignment
-                                                  Nothing
-                                                  Nothing
-                                                  (body "entry-block" [I.Do $ I.Call Nothing CC.C [] ((Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False) (N.Name "falsum_main") `debug` "problem 3") `debug` "problem 2") [] [Left $ A.GroupID 0] defaultInstrMeta `debug` "problem 1"] (generateReturnTerminator (Return (Just $ IExpr (ILit 0))))-- Main function always returns zero
-
-                                                   )]
+mainInAST m = [ fnLetInAST $ mainToPseudomain m
+              , fnLetInAST $ FnLet (FnSymbol "main" (Just Int)) []
+                               [ VCall (FnSymbol "falsum_main" Nothing) []
+                               , Return (Just (IExpr (ILit 0)))
+                               ]
+              ]
 
 programInAST :: Program -> [AST.Global]
 programInAST program@(Program constLetList staticVarLetList fnLetList main) = staticVarLetListInAST

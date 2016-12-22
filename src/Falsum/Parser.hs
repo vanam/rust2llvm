@@ -2,6 +2,7 @@ module Falsum.Parser (module Falsum.Parser, module Falsum.Lexer, module Text.Par
 
 import           ChangeState
 import           Data.Bifunctor
+import           Data.Functor.Identity
 import           Data.List
 import           Falsum.AST
 import           Falsum.Lexer
@@ -9,6 +10,7 @@ import           Falsum.TokenTest
 import           Text.Parsec                         hiding (anyToken, parse,
                                                       parseTest, satisfy)
 import qualified Text.Parsec                         as P
+import qualified Text.Parsec.Expr                    as E
 import           Text.ParserCombinators.Parsec.Error
 
 type Parser a = Parsec [TokenPos] ParseState a
@@ -19,10 +21,6 @@ initialState = ParseState [] Nothing
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
 maskState = changeState (const ()) (const $ ParseState [] Nothing)
 
-{-
-data AST = Token [Token]
-  deriving (Show, Eq)
--}
 lookupSymbol :: ParseState -> String -> Maybe Symbol
 lookupSymbol (ParseState [] _) _ = Nothing
 lookupSymbol (ParseState (scope:scopes) returnType) ident =
@@ -42,14 +40,16 @@ lookupSymbol (ParseState (scope:scopes) returnType) ident =
     _       -> maybeSym
 
 addNewScope :: ParseState -> ParseState
-addNewScope (ParseState scopes returnType) = ParseState (scopes ++ [Scope []]) returnType
+addNewScope (ParseState scopes returnType) = ParseState ([Scope []] ++ scopes) returnType
 
 removeCurrentScope :: ParseState -> ParseState
-removeCurrentScope (ParseState scopes returnType) = ParseState (init scopes) returnType
+removeCurrentScope (ParseState scopes returnType) = ParseState (tail scopes) returnType
 
 addSymbolToScope :: Symbol -> ParseState -> ParseState
-addSymbolToScope sym (ParseState scopes returnType) =
-  ParseState (init scopes ++ [addSymbolToScope' (last scopes) sym]) returnType
+addSymbolToScope sym (ParseState (scopesHead:scopesTail) returnType) =
+  ParseState (addSymbolToScope' scopesHead sym : scopesTail) returnType
+addSymbolToScope sym (ParseState [] returnType) =
+  ParseState [addSymbolToScope' (Scope []) sym] returnType
 
 addSymbolToScope' :: Scope -> Symbol -> Scope
 addSymbolToScope' (Scope scope) sym = Scope (scope ++ [sym])
@@ -161,6 +161,33 @@ intLiteral = satisfy isIntLiteral
 floatLiteral :: Parser Token
 floatLiteral = satisfy isFloatLiteral
 
+inParens :: Parser a -> Parser a
+inParens = between (structSymbol LParen) (structSymbol RParen)
+
+inBrackets :: Parser a -> Parser a
+inBrackets = between (structSymbol LBrack) (structSymbol RBrack)
+
+inBraces :: Parser a -> Parser a
+inBraces = between (structSymbol LBrace) (structSymbol RBrace)
+
+binary :: E.Assoc -> Operator -> (a -> a -> a) -> E.Operator [TokenPos] ParseState Identity a
+binary assoc op con = flip E.Infix assoc $ operator op *> pure con
+
+binaryl :: Operator -> (a -> a -> a) -> E.Operator [TokenPos] ParseState Identity a
+binaryl = binary E.AssocLeft
+
+binaryr :: Operator -> (a -> a -> a) -> E.Operator [TokenPos] ParseState Identity a
+binaryr = binary E.AssocRight
+
+binaryn :: Operator -> (a -> a -> a) -> E.Operator [TokenPos] ParseState Identity a
+binaryn = binary E.AssocNone
+
+prefix :: Operator -> (a -> a) -> E.Operator [TokenPos] ParseState Identity a
+prefix op con = E.Prefix $ operator op *> pure con
+
+postfix :: Operator -> (a -> a) -> E.Operator [TokenPos] ParseState Identity a
+postfix op con = E.Postfix $ operator op *> pure con
+
 comma :: Parser ()
 comma = structSymbol Comma
 
@@ -173,6 +200,8 @@ parseVarLet =
     operator EqSign
     valueExpr <- parseExpr
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (VarSymbol symbName ty) state
     return $ VarLet (VarSymbol symbName ty) valueExpr
 
 parseBinVarLet :: Parser VarLet
@@ -182,6 +211,8 @@ parseBinVarLet =
     operator EqSign
     valueExpr <- parseBExpr
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (VarSymbol symbName Bool) state
     return $ VarLet (VarSymbol symbName Bool) $ getExpr valueExpr
 
   where
@@ -205,6 +236,8 @@ parseConstLet =
     operator EqSign
     valueLit <- parseLiteral
     structSymbol Semicolon
+    state <- getState
+    putState $ addSymbolToScope (ConstSymbol symbName ty) state
     return $ ConstLet (ConstSymbol symbName ty) valueLit
 
 parseLiteral :: Parser Value
@@ -226,13 +259,15 @@ parseFnLet =
   do
     keyword Fn
     fnName <- parseSymbolName
-    structSymbol LParen
-    fnParams <- parseArg `sepBy` comma
-    structSymbol RParen
+    fnParams <- inParens $ parseArg `sepBy` comma
     fnReturnType <- optionMaybe parseReturnType
     state <- getState
     putState $ setReturnTypeOfScope state fnReturnType
+    modifyState addNewScope
+    addParamsToScope fnParams
     fnBlock <- parseBlock
+    modifyState removeCurrentScope
+    putState $ addSymbolToScope (FnSymbol fnName fnReturnType) state
     if curretScope state > 1
       then unexpected "Defining function out of root scope"
       else return ()
@@ -240,6 +275,7 @@ parseFnLet =
 
   where
     curretScope (ParseState scopes _) = length scopes
+    addParamsToScope = mapM_ (modifyState . addSymbolToScope)
 
 parseArg :: Parser Symbol
 parseArg =
@@ -253,14 +289,7 @@ parseReturnType :: Parser ValueType
 parseReturnType = structSymbol RArrow *> parseType
 
 parseBlock :: Parser [Stmt]
-parseBlock =
-  do
-    structSymbol LBrace
-    modifyState addNewScope
-    stmts <- many parseStmt
-    modifyState removeCurrentScope
-    structSymbol RBrace
-    return stmts
+parseBlock = inBraces $ modifyState addNewScope *> many parseStmt <* modifyState removeCurrentScope
 
 parseStmt :: Parser Stmt
 parseStmt = choice
@@ -325,15 +354,27 @@ parseElse = do
   keyword Else
   parseBlock
 
+parseITerm :: Parser IExpr
+parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar] <?> "simple expression" -- TODO better fail msg + add parseIIf -- if expression with integer result (with required else branch?)
+
+
+iBinaryTable :: [[E.Operator [TokenPos] ParseState Identity IExpr]]
+iBinaryTable = [ [prefix Minus INeg]
+               , [ binaryl Star (IBinary IMult)
+                 , binaryl Slash (IBinary IDiv)
+                 , binaryl Percent (IBinary IMod)
+                 ]
+               , [binaryl Plus (IBinary IPlus), binaryl Minus (IBinary IMinus)]
+               , [binaryl And (IBinary IAnd)]
+               , [binaryl Caret (IBinary IXor)]
+               , [binaryl Or (IBinary IOr)]
+               ] -- TODO optionally shift operators as postfix operators?
+
 parseIExpr :: Parser IExpr
-parseIExpr = choice [parseILit, parseIVar, parseINeg, parseIBinary, parseICall]
+parseIExpr = E.buildExpressionParser iBinaryTable parseITerm <?> "expression" -- TODO better fail msg
 
 parseILit :: Parser IExpr
-parseILit =
-  do
-    lit <- intLiteral
-    return $ ILit $ getVal lit
-
+parseILit = fmap (ILit . getVal) intLiteral
   where
     getVal iL =
       case iL of
@@ -343,62 +384,36 @@ parseIVar :: Parser IExpr
 parseIVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
       Just sym -> return $ IVar sym
 
-parseINeg :: Parser IExpr
-parseINeg =
-  do
-    operator Minus
-    expr <- parseIExpr
-    return $ INeg expr
-
-parseIBinary :: Parser IExpr
-parseIBinary =
-  do
-    expr1 <- parseIExpr
-    op <- satisfy isAnyOperator
-    expr2 <- parseIExpr
-    return $ IBinary (parseIOp $ extractOp op) expr1 expr2
-
-  where
-    extractOp (Operator o) = o
-
-parseIOp :: Operator -> IOp
-parseIOp Plus = IPlus
-parseIOp Minus = IMinus
-parseIOp Star = IMult
-parseIOp Slash = IDiv
-parseIOp Percent = IMod
-parseIOp And = IAnd
-parseIOp Or = IOr
-parseIOp Caret = IXor
-
 parseICall :: Parser IExpr
 parseICall =
   do
     fnName <- parseSymbolName
-    structSymbol LParen
-    fnParams <- parseExpr `sepBy` comma
-    structSymbol RParen
-    structSymbol Semicolon
+    fnParams <- inParens $ parseExpr `sepBy` comma
     state <- getState
     case lookupSymbol state fnName of
       Nothing  -> unexpected "Missing symbol"
       Just sym -> return $ ICall sym fnParams
 
+parseFTerm :: Parser FExpr
+parseFTerm = choice [inParens parseFExpr, parseFLit, parseFVar, parseFCall] <?> "simple expression" -- TODO better fail msg + add parseFIf -- if expression with real result (with required else branch?)
+
+
+fBinaryTable :: [[E.Operator [TokenPos] ParseState Identity FExpr]]
+fBinaryTable = [ [prefix Minus FNeg]
+               , [binaryl Star (FBinary FMult), binaryl Slash (FBinary FDiv)]
+               , [binaryl Plus (FBinary FPlus), binaryl Minus (FBinary FMinus)]
+               ]
+
 parseFExpr :: Parser FExpr
-parseFExpr = choice [parseFLit, parseFVar, parseFNeg, parseFBinary, parseFCall]
+parseFExpr = E.buildExpressionParser fBinaryTable parseFTerm <?> "expression" -- TODO better fail msg
 
 parseFLit :: Parser FExpr
-parseFLit =
-  do
-    lit <- floatLiteral
-    return $ FLit $ getVal lit
-
+parseFLit = fmap (FLit . getVal) floatLiteral
   where
     getVal fL =
       case fL of
@@ -408,60 +423,35 @@ parseFVar :: Parser FExpr
 parseFVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
       Just sym -> return $ FVar sym
 
-parseFNeg :: Parser FExpr
-parseFNeg =
-  do
-    operator Minus
-    expr <- parseFExpr
-    return $ FNeg expr
-
-parseFBinary :: Parser FExpr
-parseFBinary =
-  do
-    expr1 <- parseFExpr
-    op <- satisfy isAnyOperator
-    expr2 <- parseFExpr
-    return $ FBinary (parseFOp $ extractOp op) expr1 expr2
-
-  where
-    extractOp (Operator o) = o
-
-parseFOp :: Operator -> FOp
-parseFOp Plus = FPlus
-parseFOp Minus = FMinus
-parseFOp Star = FMult
-parseFOp Slash = FDiv
-
 parseFCall :: Parser FExpr
 parseFCall =
   do
     fnName <- parseSymbolName
-    structSymbol LParen
-    fnParams <- parseExpr `sepBy` comma
-    structSymbol RParen
+    fnParams <- inParens $ parseExpr `sepBy` comma
     structSymbol Semicolon
     state <- getState
     case lookupSymbol state fnName of
       Nothing  -> unexpected "Missing symbol"
       Just sym -> return $ FCall sym fnParams
 
-parseBExpr :: Parser BExpr
-parseBExpr = choice
-               [ parseTrue
-               , parseFalse
-               , parseBVar
-               , parseBNot
-               , parseBBinary
-               , parseIRBinary
-               , parseFRBinary
-               , parseBCall
+parseBTerm :: Parser BExpr
+parseBTerm = choice
+               [inParens parseBExpr, parseTrue, parseFalse, parseBVar, parseBCall, parseRelation] <?> "simple expression" -- TODO better fail msg + add parseBIf -- if expression with boolean result (with required else branch?)
+
+
+bBinaryTable :: [[E.Operator [TokenPos] ParseState Identity BExpr]]
+bBinaryTable = [ [prefix Not BNot]
+               , [binaryl DoubleAnd (BBinary BAnd)]
+               , [binaryl DoubleOr (BBinary BOr)]
                ]
+
+parseBExpr :: Parser BExpr
+parseBExpr = E.buildExpressionParser bBinaryTable parseBTerm <?> "expression" -- TODO better fail msg
 
 parseTrue :: Parser BExpr
 parseTrue =
@@ -479,29 +469,24 @@ parseBVar :: Parser BExpr
 parseBVar =
   do
     symbName <- parseSymbolName
-    structSymbol Semicolon
     state <- getState
     case lookupSymbol state symbName of
       Nothing  -> unexpected "Missing symbol"
       Just sym -> return $ BVar sym
 
-parseBNot :: Parser BExpr
-parseBNot =
+parseBCall :: Parser BExpr
+parseBCall =
   do
-    operator Falsum.Lexer.Not
-    expr <- parseBExpr
-    return $ Falsum.AST.Not expr
+    fnName <- parseSymbolName
+    fnParams <- inParens $ parseExpr `sepBy` comma
+    structSymbol Semicolon
+    state <- getState
+    case lookupSymbol state fnName of
+      Nothing  -> unexpected "Missing symbol"
+      Just sym -> return $ BCall sym fnParams
 
-parseBBinary :: Parser BExpr
-parseBBinary =
-  do
-    expr1 <- parseBExpr
-    op <- satisfy isAnyOperator
-    expr2 <- parseBExpr
-    return $ BBinary (parseBOp $ extractOp op) expr1 expr2
-
-  where
-    extractOp (Operator o) = o
+parseRelation :: Parser BExpr
+parseRelation = parserZero -- TODO choice [parseBRBinary, parseIRBinary, parseFRBinary]
 
 parseIRBinary :: Parser BExpr
 parseIRBinary =
@@ -525,11 +510,6 @@ parseFRBinary =
   where
     extractOp (Operator o) = o
 
-parseBOp :: Operator -> BOp
-parseBOp DoubleAnd = BAnd
-parseBOp DoubleOr = BOr
-parseBOp Caret = BXor
-
 parseROp :: Operator -> ROp
 parseROp Falsum.Lexer.Less = Falsum.AST.Less
 parseROp Falsum.Lexer.Leq = Falsum.AST.LessEqual
@@ -537,16 +517,3 @@ parseROp Falsum.Lexer.Greater = Falsum.AST.Greater
 parseROp Falsum.Lexer.Geq = Falsum.AST.GreaterEqual
 parseROp Falsum.Lexer.DoubleEq = Falsum.AST.Equal
 parseROp Falsum.Lexer.Neq = Falsum.AST.NotEqual
-
-parseBCall :: Parser BExpr
-parseBCall =
-  do
-    fnName <- parseSymbolName
-    structSymbol LParen
-    fnParams <- parseExpr `sepBy` comma
-    structSymbol RParen
-    structSymbol Semicolon
-    state <- getState
-    case lookupSymbol state fnName of
-      Nothing  -> unexpected "Missing symbol"
-      Just sym -> return $ BCall sym fnParams

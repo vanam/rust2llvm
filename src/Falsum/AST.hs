@@ -28,6 +28,7 @@ data Stmt = ConstLetStmt ConstLet
           | While BExpr [Stmt]
           | Return (Maybe Expr)
           | Expr Expr
+          | VCall Symbol [Expr]
   deriving (Show, Eq, Ord)
 
 data Expr = BExpr BExpr
