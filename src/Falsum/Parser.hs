@@ -94,9 +94,9 @@ isMain _ = False
 
 parseTopLevel :: Parser [TopLevel]
 parseTopLevel = many1 $ choice
-                          [ fmap TopFnLet $ parseFnLet
-                          , fmap TopConstLet $ parseConstLet
-                          , fmap TopVarLet $ parseVarLet
+                          [ TopFnLet <$> parseFnLet
+                          , TopConstLet <$> parseConstLet
+                          , TopVarLet <$> parseVarLet
                           ]
 
 parser :: Parser Program
@@ -132,7 +132,7 @@ tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
     lexerError = addErrorMessage (Message "LEXER complaints")
 
 parseType :: Parser ValueType
-parseType = fmap t $ choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"]
+parseType = t <$> choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"]
   where
     t (Symbol "i32") = Int
     t (Symbol "f32") = Real
@@ -141,7 +141,7 @@ symbolName :: Token -> String
 symbolName (Symbol s) = s
 
 parseSymbolName :: Parser String
-parseSymbolName = fmap symbolName $ satisfy isAnySymbol
+parseSymbolName = symbolName <$> satisfy isAnySymbol
 
 operator :: Operator -> Parser ()
 operator o = (satisfy $ isOperator o) *> pure ()
@@ -293,14 +293,14 @@ parseBlock = inBraces $ modifyState addNewScope *> many parseStmt <* modifyState
 
 parseStmt :: Parser Stmt
 parseStmt = choice
-              [ fmap ConstLetStmt $ parseConstLet
-              , fmap VarLetStmt $ parseVarLet
-              , fmap VarLetStmt $ parseBinVarLet
+              [ ConstLetStmt <$> parseConstLet
+              , VarLetStmt <$> parseVarLet
+              , VarLetStmt <$> parseBinVarLet
               , parseLoop
               , parseWhile
               , parseReturn
               , parseVCall
-              , (fmap Expr $ parseExpr) <* structSymbol Semicolon
+              , (Expr <$> parseExpr) <* structSymbol Semicolon
               ]
 
 parseLoop :: Parser Stmt
@@ -340,7 +340,7 @@ parseReturn = do
 
 parseExpr :: Parser Expr
 parseExpr = choice
-              [fmap IExpr $ parseIExpr, fmap FExpr $ parseFExpr, fmap BExpr $ parseBExpr, parseIf]
+              [IExpr <$> parseIExpr, FExpr <$> parseFExpr, BExpr <$> parseBExpr, parseIf]
 
 parseIf :: Parser Expr
 parseIf = do
@@ -386,7 +386,7 @@ parseIExpr :: Parser IExpr
 parseIExpr = E.buildExpressionParser iBinaryTable parseITerm <?> "expression" -- TODO better fail msg
 
 parseILit :: Parser IExpr
-parseILit = fmap (ILit . getVal) intLiteral
+parseILit = ILit . getVal <$> intLiteral
   where
     getVal iL =
       case iL of
@@ -425,7 +425,7 @@ parseFExpr :: Parser FExpr
 parseFExpr = E.buildExpressionParser fBinaryTable parseFTerm <?> "expression" -- TODO better fail msg
 
 parseFLit :: Parser FExpr
-parseFLit = fmap (FLit . getVal) floatLiteral
+parseFLit = FLit . getVal <$> floatLiteral
   where
     getVal fL =
       case fL of
