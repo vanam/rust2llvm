@@ -3,10 +3,15 @@ module Falsum.AST where
 data Program = Program [ConstLet] [VarLet] [FnLet] FnLet
   deriving (Show, Eq, Ord)
 
+data TopLevel = TopFnLet FnLet
+              | TopConstLet ConstLet
+              | TopVarLet VarLet
+  deriving (Show, Eq, Ord)
+
 data FnLet = FnLet Symbol [Symbol] [Stmt]
   deriving (Show, Eq, Ord)
 
-data ConstLet = ConstLet Symbol Expr
+data ConstLet = ConstLet Symbol Value
   deriving (Show, Eq, Ord)
 
 data VarLet = VarLet Symbol Expr
@@ -21,17 +26,19 @@ data Stmt = ConstLetStmt ConstLet
           | VarLetStmt VarLet
           | Loop [Stmt]
           | While BExpr [Stmt]
+          | Return (Maybe Expr)
           | Expr Expr
+          | VCall Symbol [Expr]
   deriving (Show, Eq, Ord)
 
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
-          | If BExpr [Stmt] [Stmt]
+          | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
-data BExpr = Blit Bool
-           | Not BExpr
+data BExpr = BLit Bool
+           | BNot BExpr
            | BBinary BOp BExpr BExpr
            | IRBinary ROp IExpr IExpr
            | FRBinary ROp FExpr FExpr
@@ -48,7 +55,7 @@ data IExpr = ILit Integer
            | IAssign LValue IExpr
   deriving (Show, Eq, Ord)
 
-data FExpr = FLit Double
+data FExpr = FLit Float
            | FVar Symbol
            | FNeg FExpr
            | FBinary FOp FExpr FExpr
@@ -58,7 +65,6 @@ data FExpr = FLit Double
 
 data BOp = BAnd
          | BOr
-         | BXor
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus
@@ -85,15 +91,16 @@ data ROp = Less
          | NotEqual
   deriving (Show, Eq, Ord)
 
-data ParseState = ParseState [Scope]
+data ParseState = ParseState [Scope] (Maybe ValueType)
   deriving (Show, Eq, Ord)
 
 data Scope = Scope [Symbol]
   deriving (Show, Eq, Ord)
 
-data Symbol = VarSymbol String ValueType
-            | FnSymbol String [ValueType] (Maybe ValueType) -- return přes maybe?
-            | ConstSymbol String ValueType Value -- const nakonec takhle?
+data Symbol = GlobalVarSymbol String ValueType
+            | VarSymbol String ValueType
+            | FnSymbol String (Maybe ValueType)
+            | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
 data ValueType = Int
