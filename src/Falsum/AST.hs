@@ -100,8 +100,8 @@ data Scope = Scope [Symbol]
 
 data Symbol = GlobalVarSymbol String ValueType
             | VarSymbol String ValueType
-            | FnSymbol String (Maybe ValueType)
-            | VariadicFnSymbol String (Maybe ValueType)
+            | FnSymbol String [ValueType] (Maybe ValueType)
+            | VariadicFnSymbol String [ValueType] (Maybe ValueType)
             | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
