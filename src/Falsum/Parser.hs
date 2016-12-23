@@ -16,7 +16,7 @@ import           Text.ParserCombinators.Parsec.Error
 type Parser a = Parsec [TokenPos] ParseState a
 
 initialState :: ParseState
-initialState = ParseState [Scope [VariadicFnSymbol "printf" Nothing]] Nothing
+initialState = ParseState [Scope [VariadicFnSymbol "printf" [String] Nothing]] Nothing
 
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
 maskState = changeState (const ()) (const initialState)
@@ -34,8 +34,8 @@ lookupSymbol (ParseState (scope:scopes) returnType) ident =
                        GlobalVarSymbol name _  -> name
                        VarSymbol name _        -> name
                        ConstSymbol name _      -> name
-                       FnSymbol name _         -> name
-                       VariadicFnSymbol name _ -> name
+                       FnSymbol name _ _         -> name
+                       VariadicFnSymbol name _ _ -> name
       maybeSym = search scope ident
   in case maybeSym of
     Nothing -> lookupSymbol (ParseState scopes returnType) ident
@@ -95,7 +95,7 @@ astTest p = either lexerError (P.parseTest $ maskState p) . tokenize "tokenizePa
     lexerError = putStrLn . ("LEXER: " ++) . show
 
 isMain :: FnLet -> Bool
-isMain (FnLet (FnSymbol name Nothing) [] _) = name == "main"
+isMain (FnLet (FnSymbol name [] Nothing) [] _) = name == "main"
 isMain _ = False
 
 parseTopLevel :: Parser [TopLevel]
@@ -293,8 +293,8 @@ parseFnLet =
     addParamsToScope fnParams
     fnBlock <- parseBlock
     modifyState removeCurrentScope
-    putState $ addSymbolToScope (FnSymbol fnName fnReturnType) state
-    return $ FnLet (FnSymbol fnName fnReturnType) fnParams fnBlock
+    putState $ addSymbolToScope (FnSymbol fnName [] fnReturnType) state -- TODO args types
+    return $ FnLet (FnSymbol fnName [] fnReturnType) fnParams fnBlock -- TODO args types
 
   where
     addParamsToScope = mapM_ (modifyState . addSymbolToScope)
@@ -383,9 +383,9 @@ parseVCall :: Parser Stmt
 parseVCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma
+    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma -- TODO lookup with args count and types in mind
     structSymbol Semicolon
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
     return $ VCall fnSym fnParams
 
 sLit :: Parser Expr
@@ -432,8 +432,8 @@ parseICall :: Parser IExpr
 parseICall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
     return $ ICall fnSym fnParams
 
 parseFTerm :: Parser FExpr
@@ -467,9 +467,8 @@ parseFCall :: Parser FExpr
 parseFCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma
-    structSymbol Semicolon
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
     return $ FCall fnSym fnParams
 
 parseBTerm :: Parser BExpr
@@ -511,9 +510,8 @@ parseBCall :: Parser BExpr
 parseBCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma
-    structSymbol Semicolon
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
     return $ BCall fnSym fnParams
 
 parseRelation :: Parser BExpr
