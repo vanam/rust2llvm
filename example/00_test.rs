@@ -23,6 +23,8 @@ fn main() {
     let c: i32 = bar(a);
     let d1: i32 = bar(a) * 2;
     let d2: i32 = 2 + bar(a);
+    let f1 = true == true;
+    let f2 = true != false;
     //c = bar(a) * bar(a);
 
     if a == b || a == c && c != b && 1 < 2 || 1 + 2 <= 3{

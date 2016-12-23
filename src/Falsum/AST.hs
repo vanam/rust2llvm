@@ -66,6 +66,8 @@ data FExpr = FLit Float
 
 data BOp = BAnd
          | BOr
+         | BEq
+         | BNotEq
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus
