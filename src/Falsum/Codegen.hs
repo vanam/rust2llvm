@@ -200,7 +200,7 @@ passArg counter (SExpr (GlobalVarSymbol name String)) = ([], (O.ConstantOperand
                                                                    True
                                                                    (C.GlobalReference strPointerType
                                                                       (AST.Name name))
-                                                                   []), []))
+                                                                   [i32Lit 0, i32Lit 0]), []))
 
 -- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
