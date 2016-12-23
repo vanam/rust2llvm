@@ -4,6 +4,8 @@ import           Data.Char
 import           Data.Word
 import           Debug.Trace
 import           Falsum.AST
+import           Falsum.Lexer                       (backwardLookup,
+                                                     forwardLookup)
 import qualified LLVM.General.AST                   as AST
 import           LLVM.General.AST.AddrSpace
 import qualified LLVM.General.AST.Attribute         as A
@@ -161,46 +163,39 @@ generateExpression :: Expr -> [I.Named I.Instruction]
 generateExpression (IExpr expr) = generateIExpression expr
 
 passArg :: Integer -> Expr -> ([I.Named I.Instruction], (O.Operand, [A.ParameterAttribute]))
-passArg counter (IExpr (IVar (VarSymbol name Int))) = ([ N.UnName (fromInteger counter) I.:= I.Load
-                                                                                               False
-                                                                                               (O.LocalReference
-                                                                                                  T.i32
-                                                                                                  (AST.Name
-                                                                                                     name))
-                                                                                               Nothing
-                                                                                               align4
-                                                                                               defaultInstrMeta
-                                                       ], (O.LocalReference T.i32
-                                                             (N.UnName (fromInteger counter)), []))
-passArg counter (FExpr (FVar (VarSymbol name Real))) = ([ N.UnName (fromInteger counter) I.:= I.Load
-                                                                                                False
-                                                                                                (O.LocalReference
-                                                                                                   T.i32
-                                                                                                   (AST.Name
-                                                                                                      name))
-                                                                                                Nothing
-                                                                                                align4
-                                                                                                defaultInstrMeta
-                                                        ], (O.LocalReference T.float
-                                                              (N.UnName (fromInteger counter)), []))
-passArg counter (BExpr (BVar (VarSymbol name Bool))) = ([ N.UnName (fromInteger counter) I.:= I.Load
-                                                                                                False
-                                                                                                (O.LocalReference
-                                                                                                   T.i32
-                                                                                                   (AST.Name
-                                                                                                      name))
-                                                                                                Nothing
-                                                                                                align4
-                                                                                                defaultInstrMeta
-                                                        ], (O.LocalReference T.i8
-                                                              (N.UnName (fromInteger counter)), []))
--- SExpr (VarSymbol "format" String)
-passArg counter (SExpr (GlobalVarSymbol name String)) = ([], (O.ConstantOperand
-                                                                (C.GetElementPtr
-                                                                   True
-                                                                   (C.GlobalReference strPointerType
-                                                                      (AST.Name name))
-                                                                   [i32Lit 0, i32Lit 0]), []))
+passArg counter expr
+  | (IExpr (IVar (VarSymbol name Int))) <- expr =
+      ([ N.UnName (fromInteger counter) I.:= I.Load
+                                               False
+                                               (O.LocalReference T.i32 (AST.Name name))
+                                               Nothing
+                                               align4
+                                               defaultInstrMeta
+       ], (O.LocalReference T.i32 (N.UnName (fromInteger counter)), []))
+  | (FExpr (FVar (VarSymbol name Real))) <- expr =
+      ([ N.UnName (fromInteger counter) I.:= I.Load
+                                               False
+                                               (O.LocalReference T.i32 (AST.Name name))
+                                               Nothing
+                                               align4
+                                               defaultInstrMeta
+       ], (O.LocalReference T.float (N.UnName (fromInteger counter)), []))
+  | (BExpr (BVar (VarSymbol name Bool))) <- expr = ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                                                            False
+                                                                                            (O.LocalReference
+                                                                                               T.i32
+                                                                                               (AST.Name
+                                                                                                  name))
+                                                                                            Nothing
+                                                                                            align4
+                                                                                            defaultInstrMeta
+                                                    ], (O.LocalReference T.i8
+                                                          (N.UnName (fromInteger counter)), []))
+  -- SExpr (VarSymbol "format" String)
+  | (SExpr (GlobalVarSymbol name String)) <- expr =
+      ([], (O.ConstantOperand
+              (C.GetElementPtr True (C.GlobalReference strPointerType (AST.Name name))
+                 [i32Lit 0, i32Lit 0]), []))
 
 -- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
@@ -254,10 +249,10 @@ generateReturnTerminator stmt = error
                                    show stmt ++
                                    "' given.")
 
-makeBody :: String -> [Stmt] -> [AST.BasicBlock]
-makeBody blockName statements = [ block blockName (generateStatements $ init statements)
-                                    (generateReturnTerminator $ last statements)
-                                ]
+makeBody :: [(Symbol, N.Name)] -> String -> [Stmt] -> [AST.BasicBlock]
+makeBody table blockName statements = [ block blockName (generateStatements $ init statements)
+                                          (generateReturnTerminator $ last statements)
+                                      ]
 
 constLetInAST :: ConstLet -> AST.Global
 {-|
@@ -369,8 +364,8 @@ fnLetInAST (DeclareFnLet (FnSymbol name retType) arguments vararg) =
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
   case retType of
-    Nothing  -> gen T.void name $ makeBody "entry-block" statements
-    Just Int -> gen T.i32 name $ makeBody "entry-block" statements
+    Nothing  -> gen T.void name $ makeBody table "entry-block" statements
+    Just Int -> gen T.i32 name $ makeBody table "entry-block" statements
   where
     gen t n bs = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
@@ -388,8 +383,48 @@ fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
                    defaultAlignment
                    Nothing
                    Nothing
-                   bs
+                   (block "args-to-regs" (concat codeArgsToRegs)
+                      (I.Do $ I.Br (AST.Name "entry-block") defaultInstrMeta) : bs)
                    Nothing
+    argsToRegs = unzip $ zipWith argToReg arguments [1 ..]
+    codeArgsToRegs = fst $ argsToRegs
+    table = snd $ argsToRegs
+
+argToReg :: Symbol -> Word -> ([I.Named I.Instruction], (Symbol, N.Name))
+argToReg symbol regNumber = (argToRegInstructions symbol register, (symbol, register))
+  where
+    register = N.UnName regNumber
+    argToRegInstructions sym reg
+      | (VarSymbol name Int) <- sym =
+          [ reg I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
+          , I.Do $ I.Store
+                     False
+                     (O.LocalReference T.i32 reg)
+                     (O.LocalReference T.i32 (AST.Name name))
+                     Nothing
+                     align4
+                     defaultInstrMeta
+          ]
+      | (VarSymbol name Real) <- sym =
+          [ reg I.:= I.Alloca T.float Nothing align4 defaultInstrMeta
+          , I.Do $ I.Store
+                     False
+                     (O.LocalReference T.float reg)
+                     (O.LocalReference T.float (AST.Name name))
+                     Nothing
+                     align4
+                     defaultInstrMeta
+          ]
+      | (VarSymbol name Bool) <- sym =
+          [ reg I.:= I.Alloca T.i1 Nothing align4 defaultInstrMeta
+          , I.Do $ I.Store
+                     False
+                     (O.LocalReference T.i1 reg)
+                     (O.LocalReference T.i1 (AST.Name name))
+                     Nothing
+                     align4
+                     defaultInstrMeta
+          ]
 
 fnLetListInAST :: [FnLet] -> [AST.Global]
 fnLetListInAST = map fnLetInAST
