@@ -9,6 +9,7 @@ data TopLevel = TopFnLet FnLet
   deriving (Show, Eq, Ord)
 
 data FnLet = FnLet Symbol [Symbol] [Stmt]
+           | DeclareFnLet Symbol [Symbol] Bool
   deriving (Show, Eq, Ord)
 
 data ConstLet = ConstLet Symbol Value
@@ -34,6 +35,7 @@ data Stmt = ConstLetStmt ConstLet
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
+          | SExpr Symbol
           | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
@@ -106,6 +108,7 @@ data Symbol = GlobalVarSymbol String ValueType
 data ValueType = Int
                | Real
                | Bool
+               | String
                | ArrayBool
                | ArrayInt
                | ArrayReal
@@ -114,6 +117,7 @@ data ValueType = Int
 data Value = IntVal Int
            | RealVal Float
            | BoolVal Bool
+           | StringVal String
   deriving (Show, Eq, Ord)
 
 data LValue = LValue Symbol

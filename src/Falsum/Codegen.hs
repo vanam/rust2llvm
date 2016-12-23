@@ -1,5 +1,6 @@
 module Falsum.Codegen where
 
+import           Data.Char
 import           Data.Word
 import           Debug.Trace
 import           Falsum.AST
@@ -35,6 +36,7 @@ simple :: Program
 simple = Program
            [ ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
            , ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
+           , ConstLet (ConstSymbol "format" String) (StringVal "test %d\00")
            ]
            [ VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
            , VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5))
@@ -47,6 +49,7 @@ simple = Program
                ]
            , FnLet (FnSymbol "maine" (Just Int)) [VarSymbol "a" Int, VarSymbol "b" Int]
                [VCall (FnSymbol "foo" Nothing) [], Return (Just (IExpr (ILit 0)))]
+           , DeclareFnLet (FnSymbol "printf" (Just Int)) [VarSymbol "" String] True
            ]
            (FnLet (FnSymbol "main" Nothing) []
               [ VarLetStmt
@@ -61,6 +64,8 @@ simple = Program
               , VCall (FnSymbol "foo" Nothing) []
               , VCall (FnSymbol "maine" Nothing)
                   [IExpr (IVar (VarSymbol "a" Int)), IExpr (IVar (VarSymbol "b" Int))]
+              , VCall (FnSymbol "printf" Nothing)
+                  [SExpr (GlobalVarSymbol "format" String), IExpr (IVar (VarSymbol "b" Int))]
               , Return Nothing
               ])
 
@@ -70,11 +75,26 @@ defaultInstrMeta = []
 defaultAlignment :: Word32
 defaultAlignment = 0
 
+align1 :: Word32
+align1 = 1
+
 align4 :: Word32
 align4 = 4
 
+strPointerType :: T.Type
+strPointerType = T.PointerType T.i8 (AddrSpace 0)
+
+strArrayType :: Int -> T.Type
+strArrayType len = T.ArrayType (toEnum len) T.i8
+
 i32Lit :: Integer -> C.Constant
 i32Lit = C.Int 32
+
+charLit :: Char -> C.Constant
+charLit c = C.Int 8 $ toInteger (ord c)
+
+strLit :: String -> C.Constant
+strLit s = C.Array (strArrayType (length s)) $ map charLit s
 
 f32Lit :: Float -> C.Constant
 f32Lit = C.Float . F.Single
@@ -174,6 +194,13 @@ passArg counter (BExpr (BVar (VarSymbol name Bool))) = ([ N.UnName (fromInteger 
                                                                                                 defaultInstrMeta
                                                         ], (O.LocalReference T.i8
                                                               (N.UnName (fromInteger counter)), []))
+-- SExpr (VarSymbol "format" String)
+passArg counter (SExpr (GlobalVarSymbol name String)) = ([], (O.ConstantOperand
+                                                                (C.GetElementPtr
+                                                                   True
+                                                                   (C.GlobalReference strPointerType
+                                                                      (AST.Name name))
+                                                                   []), []))
 
 -- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
@@ -185,7 +212,6 @@ generateStatement stmt
   | (Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
   | (VCall (FnSymbol name Nothing) args) <- stmt =
-      -- load arguments here
       let argsWithInstructions = zipWith passArg [1 ..] args
       in concatMap fst argsWithInstructions
          ++
@@ -237,13 +263,15 @@ constLetInAST :: ConstLet -> AST.Global
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
+  ConstLet (ConstSymbol "format" String) (StringVal "test %d")
 -}
 constLetInAST constLet    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
  =
   case constLet of
-    (ConstLet (ConstSymbol s Int) (IntVal v))   -> gen T.i32 (enrich s) $ i32Lit $ toInteger v
-    (ConstLet (ConstSymbol s Real) (RealVal v)) -> gen T.float (enrich s) $ f32Lit v
+    (ConstLet (ConstSymbol s Int) (IntVal v))       -> gen T.i32 (enrich s) $ i32Lit $ toInteger v
+    (ConstLet (ConstSymbol s Real) (RealVal v))     -> gen T.float (enrich s) $ f32Lit v
+    (ConstLet (ConstSymbol s String) (StringVal v)) -> genStr (strArrayType (length v)) s $ strLit v
   where
     gen t n v = AST.GlobalVariable
                   (AST.Name n)
@@ -259,6 +287,20 @@ constLetInAST constLet    -- https://github.com/bscarlet/llvm-general/blob/llvm-
                   Nothing
                   Nothing
                   align4
+    genStr t n v = AST.GlobalVariable
+                     (AST.Name n)
+                     L.Private
+                     V.Default
+                     Nothing
+                     Nothing
+                     defaultAddrSpace
+                     True
+                     True
+                     t
+                     (Just v)
+                     Nothing
+                     Nothing
+                     align1
     enrich = const "const"
 
 constLetListInAST :: [ConstLet] -> [AST.Global]
@@ -297,9 +339,34 @@ formalArgs :: Symbol -> AST.Parameter
 formalArgs (VarSymbol name Int) = AST.Parameter T.i32 (N.Name name) []
 formalArgs (VarSymbol name Real) = AST.Parameter T.float (N.Name name) []
 formalArgs (VarSymbol name Bool) = AST.Parameter T.i8 (N.Name name) []
+formalArgs (VarSymbol name String) = AST.Parameter strPointerType (N.Name "") []
 
--- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST :: FnLet -> AST.Global
+-- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
+fnLetInAST (DeclareFnLet (FnSymbol name retType) arguments vararg) =
+  case retType of
+    Nothing  -> gen T.void name
+    Just Int -> gen T.i32 name
+  where
+    gen t n = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                L.External
+                V.Default
+                Nothing
+                CC.C
+                []
+                t
+                (AST.Name n)
+                (map formalArgs arguments, vararg)
+                [Left $ A.GroupID 0]
+                Nothing
+                Nothing
+                defaultAlignment
+                Nothing
+                Nothing
+                []
+                Nothing
+-- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
   case retType of
     Nothing  -> gen T.void name $ makeBody "entry-block" statements
