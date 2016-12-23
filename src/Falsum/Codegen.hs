@@ -45,7 +45,7 @@ simple = Program
                       (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 21))))
                , Return Nothing
                ]
-           , FnLet (FnSymbol "maine" (Just Int)) []
+           , FnLet (FnSymbol "maine" (Just Int)) [VarSymbol "a" Int, VarSymbol "b" Int]
                [VCall (FnSymbol "foo" Nothing) [], Return (Just (IExpr (ILit 0)))]
            ]
            (FnLet (FnSymbol "main" Nothing) []
@@ -59,6 +59,8 @@ simple = Program
               , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
               , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
               , VCall (FnSymbol "foo" Nothing) []
+              , VCall (FnSymbol "maine" Nothing)
+                  [IExpr (IVar (VarSymbol "a" Int)), IExpr (IVar (VarSymbol "b" Int))]
               , Return Nothing
               ])
 
@@ -138,6 +140,41 @@ generateIExpression iAssign
 generateExpression :: Expr -> [I.Named I.Instruction]
 generateExpression (IExpr expr) = generateIExpression expr
 
+passArg :: Integer -> Expr -> ([I.Named I.Instruction], (O.Operand, [A.ParameterAttribute]))
+passArg counter (IExpr (IVar (VarSymbol name Int))) = ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                                                               False
+                                                                                               (O.LocalReference
+                                                                                                  T.i32
+                                                                                                  (AST.Name
+                                                                                                     name))
+                                                                                               Nothing
+                                                                                               align4
+                                                                                               defaultInstrMeta
+                                                       ], (O.LocalReference T.i32
+                                                             (N.UnName (fromInteger counter)), []))
+passArg counter (FExpr (FVar (VarSymbol name Real))) = ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                                                                False
+                                                                                                (O.LocalReference
+                                                                                                   T.i32
+                                                                                                   (AST.Name
+                                                                                                      name))
+                                                                                                Nothing
+                                                                                                align4
+                                                                                                defaultInstrMeta
+                                                        ], (O.LocalReference T.float
+                                                              (N.UnName (fromInteger counter)), []))
+passArg counter (BExpr (BVar (VarSymbol name Bool))) = ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                                                                False
+                                                                                                (O.LocalReference
+                                                                                                   T.i32
+                                                                                                   (AST.Name
+                                                                                                      name))
+                                                                                                Nothing
+                                                                                                align4
+                                                                                                defaultInstrMeta
+                                                        ], (O.LocalReference T.i8
+                                                              (N.UnName (fromInteger counter)), []))
+
 -- TODO Generate all statements
 generateStatement :: Stmt -> [I.Named I.Instruction]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
@@ -146,18 +183,22 @@ generateStatement stmt
       (AST.Name name I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta) : generateExpression expr
   -- Expr (...)
   | (Expr e) <- stmt = generateExpression e
-  -- VCall (FnSymbol "foo" Nothing) [] -- TODO Pass arguments
-  | (VCall (FnSymbol name Nothing) _) <- stmt =
-      [ I.Do $ I.Call
-                 Nothing
-                 CC.C
-                 []
-                 (Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False)
-                                                (N.Name name))
-                 []
-                 [Left $ A.GroupID 0]
-                 defaultInstrMeta
-      ]
+  -- VCall (FnSymbol "foo" Nothing) [args]
+  | (VCall (FnSymbol name Nothing) args) <- stmt =
+      -- load arguments here
+      let argsWithInstructions = zipWith passArg [1 ..] args
+      in concatMap fst argsWithInstructions
+         ++
+         [ I.Do $ I.Call
+                    Nothing
+                    CC.C
+                    []
+                    (Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False)
+                                                   (N.Name name))
+                    (map snd argsWithInstructions)
+                    [Left $ A.GroupID 0]
+                    defaultInstrMeta
+         ]
 
 generateStatements :: [Stmt] -> [I.Named I.Instruction]
 generateStatements = concatMap generateStatement
@@ -191,88 +232,6 @@ makeBody :: String -> [Stmt] -> [AST.BasicBlock]
 makeBody blockName statements = [ block blockName (generateStatements $ init statements)
                                     (generateReturnTerminator $ last statements)
                                 ]
-
--- TODO
-simple_foo :: AST.Global
-simple_foo = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
-
-               L.Internal
-               V.Default
-               Nothing
-               CC.C
-               []
-               T.void
-               (AST.Name "foo")
-               ([], False)
-               [Left $ A.GroupID 0]
-               Nothing
-               Nothing
-               defaultAlignment
-               Nothing
-               Nothing
-               (body
-                  "entry-block"
-                  [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
-                  , I.Do $ I.Store
-                             False
-                             (O.LocalReference T.i32 (AST.Name "a"))
-                             (O.ConstantOperand $ i32Lit 21)
-                             Nothing
-                             align4
-                             defaultInstrMeta
-                  ]
-                  (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L417
-
-                     (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                        Nothing
-                        defaultInstrMeta)))
-               Nothing
-
--- TODO
-simple_main :: AST.Global
-simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
-
-                L.External
-                V.Default
-                Nothing
-                CC.C
-                []
-                T.void
-                (AST.Name "main")
-                ([], False)
-                [Left $ A.GroupID 0]
-                Nothing
-                Nothing
-                defaultAlignment
-                Nothing
-                Nothing
-                (body
-                   "entry-block"
-                   [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
-                   , (AST.Name "b") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
-                   , I.Do $ I.Store
-                              False
-                              (O.LocalReference T.i32 (AST.Name "a"))
-                              (O.ConstantOperand $ i32Lit 5)
-                              Nothing
-                              align4
-                              defaultInstrMeta
-                   , I.Do $ I.Store
-                              False
-                              (O.LocalReference T.i32 (AST.Name "b"))
-                              (O.ConstantOperand $ i32Lit 42)
-                              Nothing
-                              align4
-                              defaultInstrMeta
-                   ]
-                   (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L417
-
-                      (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                         Nothing
-                         defaultInstrMeta)))
-                Nothing
 
 constLetInAST :: ConstLet -> AST.Global
 {-|
@@ -334,9 +293,14 @@ staticVarLetInAST varLet =
 staticVarLetListInAST :: [VarLet] -> [AST.Global]
 staticVarLetListInAST = map staticVarLetInAST
 
--- FnLet (FnSymbol "name" Nothing) [...] [...]
+formalArgs :: Symbol -> AST.Parameter
+formalArgs (VarSymbol name Int) = AST.Parameter T.i32 (N.Name name) []
+formalArgs (VarSymbol name Real) = AST.Parameter T.float (N.Name name) []
+formalArgs (VarSymbol name Bool) = AST.Parameter T.i8 (N.Name name) []
+
+-- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST :: FnLet -> AST.Global
-fnLetInAST (FnLet (FnSymbol name retType) _ statements) =
+fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
   case retType of
     Nothing  -> gen T.void name $ makeBody "entry-block" statements
     Just Int -> gen T.i32 name $ makeBody "entry-block" statements
@@ -350,7 +314,7 @@ fnLetInAST (FnLet (FnSymbol name retType) _ statements) =
                    []
                    t
                    (AST.Name n)
-                   ([], False)
+                   (map formalArgs arguments, False)
                    [Left $ A.GroupID 0]
                    Nothing
                    Nothing
