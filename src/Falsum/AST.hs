@@ -34,6 +34,7 @@ data Stmt = ConstLetStmt ConstLet
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
+          | SExpr String
           | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
@@ -100,12 +101,14 @@ data Scope = Scope [Symbol]
 data Symbol = GlobalVarSymbol String ValueType
             | VarSymbol String ValueType
             | FnSymbol String (Maybe ValueType)
+            | VariadicFnSymbol String (Maybe ValueType)
             | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
 data ValueType = Int
                | Real
                | Bool
+               | String
                | ArrayBool
                | ArrayInt
                | ArrayReal

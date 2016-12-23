@@ -16,7 +16,7 @@ import           Text.ParserCombinators.Parsec.Error
 type Parser a = Parsec [TokenPos] ParseState a
 
 initialState :: ParseState
-initialState = ParseState [Scope []] Nothing
+initialState = ParseState [Scope [VariadicFnSymbol "printf" Nothing]] Nothing
 
 maskState :: Parsec [TokenPos] ParseState a -> Parsec [TokenPos] () a
 maskState = changeState (const ()) (const initialState)
@@ -31,10 +31,11 @@ lookupSymbol (ParseState (scope:scopes) returnType) ident =
         where
           symName =
                      case sym of
-                       GlobalVarSymbol name _ -> name
-                       VarSymbol name _       -> name
-                       ConstSymbol name _     -> name
-                       FnSymbol name _        -> name
+                       GlobalVarSymbol name _  -> name
+                       VarSymbol name _        -> name
+                       ConstSymbol name _      -> name
+                       FnSymbol name _         -> name
+                       VariadicFnSymbol name _ -> name
       maybeSym = search scope ident
   in case maybeSym of
     Nothing -> lookupSymbol (ParseState scopes returnType) ident
@@ -269,11 +270,13 @@ parseLiteral =
 token2Lit :: Token -> Literal
 token2Lit (Literal x) = x
 
-lit2Value :: Literal -> Value
+lit2Value :: Literal -> Value -- TODO parseLiteral has to fail for unsupported literals or we have to
+                              -- limit the lexer (right now lit2Value is non-exhaustive)
 lit2Value (IntLit _ x) = IntVal $ fromIntegral x
 lit2Value (FloatLit _ (Left x)) = RealVal x
 lit2Value (FloatLit _ (Right x)) = RealVal $ realToFrac x
 
+-- lit2Value (ByteString s) = StringVal s lit2Value (UnicodeString s) = StringVal s
 parseFnLet :: Parser FnLet
 parseFnLet =
   do
@@ -380,10 +383,18 @@ parseVCall :: Parser Stmt
 parseVCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma
+    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma
     structSymbol Semicolon
     fnSym <- safeLookupSymbol fnName "Missing function symbol: "
     return $ VCall fnSym fnParams
+
+sLit :: Parser Expr
+sLit =
+  do
+    str <- satisfy isStringLiteral
+    case token2Lit str of
+      ByteString s    -> return $ SExpr s
+      UnicodeString s -> return $ SExpr s
 
 parseITerm :: Parser IExpr
 parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar]
