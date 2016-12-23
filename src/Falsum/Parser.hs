@@ -13,6 +13,17 @@ import qualified Text.Parsec                         as P
 import qualified Text.Parsec.Expr                    as E
 import           Text.ParserCombinators.Parsec.Error
 
+import           Data.Functor.Identity
+import           Debug.Trace
+
+println msg = trace (show msg) $ return ()
+
+seeNext :: Int -> ParsecT [TokenPos] u Identity ()
+seeNext n = do
+  s <- getParserState
+  let out = take n (stateInput s)
+  println out
+
 type Parser a = Parsec [TokenPos] ParseState a
 
 initialState :: ParseState
@@ -31,9 +42,9 @@ lookupSymbol (ParseState (scope:scopes) returnType) ident =
         where
           symName =
                      case sym of
-                       GlobalVarSymbol name _  -> name
-                       VarSymbol name _        -> name
-                       ConstSymbol name _      -> name
+                       GlobalVarSymbol name _    -> name
+                       VarSymbol name _          -> name
+                       ConstSymbol name _        -> name
                        FnSymbol name _ _         -> name
                        VariadicFnSymbol name _ _ -> name
       maybeSym = search scope ident
@@ -102,7 +113,9 @@ parseTopLevel :: Parser [TopLevel]
 parseTopLevel = many1 $ choice
                           [ TopFnLet <$> parseFnLet
                           , TopConstLet <$> parseConstLet
-                          , TopVarLet <$> parseVarLet
+                          , TopVarLet <$> parseIVarLet
+                          , TopVarLet <$> parseFVarLet
+                          , TopVarLet <$> parseBinVarLet
                           ]
 
 parser :: Parser Program
@@ -210,19 +223,33 @@ forgeSymbol symbName ty =
                symbName
                ty
 
-parseVarLet :: Parser VarLet
-parseVarLet =
+parseIVarLet :: Parser VarLet
+parseIVarLet =
+  do
+    symbName <- parseVarSymbolName
+    state <- getState
+    structSymbol Colon
+    ty <- parseType
+    operator EqSign
+    valueExpr <- parseIExpr
+    structSymbol Semicolon
+    forgedSymbol <- forgeSymbol symbName ty
+    putState $ addSymbolToScope forgedSymbol state
+    return $ VarLet forgedSymbol (IExpr valueExpr)
+
+parseFVarLet :: Parser VarLet
+parseFVarLet =
   do
     symbName <- parseVarSymbolName
     structSymbol Colon
     ty <- parseType
     operator EqSign
-    valueExpr <- parseExpr
+    valueExpr <- parseFExpr
     structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
-    return $ VarLet forgedSymbol valueExpr
+    return $ VarLet forgedSymbol (FExpr valueExpr)
 
 parseBinVarLet :: Parser VarLet
 parseBinVarLet =
@@ -316,12 +343,14 @@ parseBlock = inBraces $ modifyState addNewScope *> many parseStmt <* modifyState
 parseStmt :: Parser Stmt
 parseStmt = choice
               [ ConstLetStmt <$> parseConstLet
-              , VarLetStmt <$> parseVarLet
-              , VarLetStmt <$> parseBinVarLet
+              , VarLetStmt <$> try parseIVarLet
+              , VarLetStmt <$> try parseFVarLet
+              , VarLetStmt <$> try parseBinVarLet
               , parseLoop
               , parseWhile
               , parseReturn
-              , parseVCall
+              , try parseVCall
+              , Expr <$> parseIf
               , (Expr <$> parseExpr) <* structSymbol Semicolon
               ]
 
@@ -364,7 +393,12 @@ parseReturn = do
     mismatch r = unexpected $ "Return type does not match, expected: " ++ show r
 
 parseExpr :: Parser Expr
-parseExpr = choice [IExpr <$> parseIExpr, FExpr <$> parseFExpr, BExpr <$> parseBExpr, parseIf]
+parseExpr = choice
+              [ BExpr <$> try parseBExpr
+              , IExpr <$> try parseIExpr
+              , FExpr <$> try parseFExpr
+              , parseIf
+              ]
 
 parseIf :: Parser Expr
 parseIf = do
@@ -383,9 +417,13 @@ parseVCall :: Parser Stmt
 parseVCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma -- TODO lookup with args count and types in mind
+    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma -- TODO lookup with args count and
+                                                              -- types in mind
+
     structSymbol Semicolon
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
+                                                                 -- types in mind
+
     return $ VCall fnSym fnParams
 
 sLit :: Parser Expr
@@ -397,7 +435,7 @@ sLit =
       UnicodeString s -> return $ SExpr s
 
 parseITerm :: Parser IExpr
-parseITerm = choice [inParens parseIExpr, parseILit, try parseICall, parseIVar]
+parseITerm = choice [inParens parseIExpr, try parseICall, try parseIVar, parseILit]
              <?> "simple int expression" -- TODO add parseIIf -- if expression with integer result
                                          -- (with required else branch?)
 
@@ -433,11 +471,13 @@ parseICall =
   do
     fnName <- parseSymbolName
     fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
+                                                                 -- types in mind
+
     return $ ICall fnSym fnParams
 
 parseFTerm :: Parser FExpr
-parseFTerm = choice [inParens parseFExpr, parseFLit, parseFVar, parseFCall]
+parseFTerm = choice [inParens parseFExpr, try parseFCall, try parseFVar, parseFLit]
              <?> "simple float expression" -- TODO add parseFIf -- if expression with real result
                                            -- (with required else branch?)
 
@@ -468,12 +508,20 @@ parseFCall =
   do
     fnName <- parseSymbolName
     fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
+                                                                 -- types in mind
+
     return $ FCall fnSym fnParams
 
 parseBTerm :: Parser BExpr
 parseBTerm = choice
-               [inParens parseBExpr, parseTrue, parseFalse, parseBVar, parseBCall, parseRelation]
+               [ inParens parseBExpr
+               , try parseRelation
+               , try parseBCall
+               , try parseBVar
+               , parseTrue
+               , parseFalse
+               ]
              <?> "simple bool expression" -- TODO add parseBIf -- if expression with boolean result
                                           -- (with required else branch?)
 
@@ -511,11 +559,13 @@ parseBCall =
   do
     fnName <- parseSymbolName
     fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and types in mind
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
+                                                                 -- types in mind
+
     return $ BCall fnSym fnParams
 
 parseRelation :: Parser BExpr
-parseRelation = parserZero -- TODO choice [parseBRBinary, parseIRBinary, parseFRBinary]
+parseRelation = choice [parseIRBinary, parseFRBinary]
 
 parseIRBinary :: Parser BExpr
 parseIRBinary =
