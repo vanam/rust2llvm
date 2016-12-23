@@ -3,9 +3,10 @@ module Main where
 import           Falsum.Codegen
 import           Falsum.Parser
 import           Falsum.Transform
-import           System.Directory (doesFileExist)
-import           System.IO        (hFlush, stdout)
+--import           System.Directory (doesFileExist)
+--import           System.IO        (hFlush, stdout)
 
+{-
 yesno :: String -> IO Bool
 yesno prompt = do
   putStr $ prompt ++ " y/n: "
@@ -43,3 +44,19 @@ main = do
   if continue
     then main
     else return ()
+-}
+
+main :: IO ()
+main = do
+  sourceCode <- getContents
+  parsed <- return $ tokenizeParse "stdin" $ sourceCode
+  case parsed of
+    Left lexerError -> do
+      putStrLn "Lexer fails:"
+      putStrLn . show $ lexerError
+    Right (Left parserError) -> do
+      putStrLn "Parser fails:"
+      putStrLn . show $ parserError
+    Right (Right ast) -> do
+      randomSuffix <- randomString 20
+      codegen "stdin" (transformProgram ("main_" ++ randomSuffix) ast)
