@@ -527,6 +527,8 @@ parseBTerm = choice
 
 bBinaryTable :: [[E.Operator [TokenPos] ParseState Identity BExpr]]
 bBinaryTable = [ [prefix Not BNot]
+               , [binaryl DoubleEq (BBinary BEq)]
+               , [binaryl Neq (BBinary BNotEq)]
                , [binaryl DoubleAnd (BBinary BAnd)]
                , [binaryl DoubleOr (BBinary BOr)]
                ]
