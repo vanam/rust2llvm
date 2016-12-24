@@ -522,6 +522,7 @@ parseFLit :: Parser FExpr
 parseFLit = FLit . getVal <$> floatLiteral
   where
     getVal (Literal (FloatLit Nothing (Left floatVal))) = floatVal
+    getVal (Literal (FloatLit Nothing (Right doubleVal))) = realToFrac doubleVal
 
 parseFVar :: Parser FExpr
 parseFVar =
