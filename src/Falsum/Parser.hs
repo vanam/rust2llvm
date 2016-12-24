@@ -223,6 +223,35 @@ forgeSymbol symbName ty =
                symbName
                ty
 
+checkVarType :: Symbol -> Expr -> Parser ()
+checkVarType (VarSymbol _ Int) (IExpr _) = return () -- TODO can be written better
+checkVarType (ConstSymbol _ Int) (IExpr _) = return () -- eg. with some sort of data alias
+checkVarType (GlobalVarSymbol _ Int) (IExpr _) = return ()
+checkVarType (VarSymbol _ Real) (FExpr _) = return ()
+checkVarType (ConstSymbol _ Real) (FExpr _) = return ()
+checkVarType (GlobalVarSymbol _ Real) (FExpr _) = return ()
+checkVarType (VarSymbol _ Bool) (BExpr _) = return ()
+checkVarType (ConstSymbol _ Bool) (BExpr _) = return ()
+checkVarType (GlobalVarSymbol _ Bool) (BExpr _) = return ()
+checkVarType (VarSymbol _ String) (SExpr _) = return ()
+checkVarType _ _ = unexpected "Var type does not match"
+
+checkFnCallParams :: Symbol -> [Expr] -> Parser ()
+checkFnCallParams (FnSymbol _ [] _) [] = return ()
+checkFnCallParams (FnSymbol _ types _) params = do
+  if length types /= length params
+    then unexpected "Arguments count does not match"
+    else return ()
+  last $ zipWith check types params
+  return ()
+
+  where
+    check Int (IExpr _) = return ()
+    check Bool (BExpr _) = return ()
+    check Real (FExpr _) = return ()
+    check String (SExpr _) = return ()
+    check a b = unexpected $ "Function argument does not match " ++ show a ++ " " ++ show b
+
 parseIVarLet :: Parser VarLet
 parseIVarLet =
   do
@@ -320,11 +349,12 @@ parseFnLet =
     addParamsToScope fnParams
     fnBlock <- parseBlock
     modifyState removeCurrentScope
-    putState $ addSymbolToScope (FnSymbol fnName [] fnReturnType) state -- TODO args types
-    return $ FnLet (FnSymbol fnName [] fnReturnType) fnParams fnBlock -- TODO args types
+    putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
+    return $ FnLet (FnSymbol fnName (map getType fnParams) fnReturnType) fnParams fnBlock
 
   where
     addParamsToScope = mapM_ (modifyState . addSymbolToScope)
+    getType (VarSymbol _ valType) = valType
 
 parseArg :: Parser Symbol
 parseArg =
@@ -417,13 +447,10 @@ parseVCall :: Parser Stmt
 parseVCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma -- TODO lookup with args count and
-                                                              -- types in mind
-
+    fnParams <- inParens $ (parseExpr <|> sLit) `sepBy` comma
     structSymbol Semicolon
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
-                                                                 -- types in mind
-
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    checkFnCallParams fnSym fnParams
     return $ VCall fnSym fnParams
 
 sLit :: Parser Expr
@@ -464,16 +491,16 @@ parseIVar =
   do
     symbName <- parseSymbolName
     sym <- safeLookupSymbol symbName "Missing symbol: "
+    checkVarType sym (IExpr (IVar sym))
     return $ IVar sym
 
 parseICall :: Parser IExpr
 parseICall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
-                                                                 -- types in mind
-
+    fnParams <- inParens $ parseExpr `sepBy` comma
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    checkFnCallParams fnSym fnParams
     return $ ICall fnSym fnParams
 
 parseFTerm :: Parser FExpr
@@ -501,16 +528,16 @@ parseFVar =
   do
     symbName <- parseSymbolName
     sym <- safeLookupSymbol symbName "Missing symbol: "
+    checkVarType sym (FExpr (FVar sym))
     return $ FVar sym
 
 parseFCall :: Parser FExpr
 parseFCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
-                                                                 -- types in mind
-
+    fnParams <- inParens $ parseExpr `sepBy` comma
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    checkFnCallParams fnSym fnParams
     return $ FCall fnSym fnParams
 
 parseBTerm :: Parser BExpr
@@ -554,16 +581,16 @@ parseBVar =
   do
     symbName <- parseSymbolName
     sym <- safeLookupSymbol symbName "Missing symbol: "
+    checkVarType sym (BExpr (BVar sym))
     return $ BVar sym
 
 parseBCall :: Parser BExpr
 parseBCall =
   do
     fnName <- parseSymbolName
-    fnParams <- inParens $ parseExpr `sepBy` comma -- TODO lookup with args count and types in mind
-    fnSym <- safeLookupSymbol fnName "Missing function symbol: " -- TODO lookup with args count and
-                                                                 -- types in mind
-
+    fnParams <- inParens $ parseExpr `sepBy` comma
+    fnSym <- safeLookupSymbol fnName "Missing function symbol: "
+    checkFnCallParams fnSym fnParams
     return $ BCall fnSym fnParams
 
 parseRelation :: Parser BExpr
