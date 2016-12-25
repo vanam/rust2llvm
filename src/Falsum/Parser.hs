@@ -286,7 +286,9 @@ parseBinVarLet =
     symbName <- parseVarSymbolName
     operator EqSign
     valueExpr <- parseBExpr
-    structSymbol Semicolon
+    case valueExpr of
+      BIf{} -> return ()
+      _     -> structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
@@ -443,6 +445,14 @@ parseElse = do
   keyword Else
   parseBlock
 
+parseBIf :: Parser BExpr
+parseBIf = do
+  keyword Falsum.Lexer.If
+  cond <- parseBExpr
+  ifBlock <- parseBlock
+  elseBlock <- parseElse
+  return $ BIf cond ifBlock elseBlock
+
 parseVCall :: Parser Stmt
 parseVCall =
   do
@@ -549,9 +559,9 @@ parseBTerm = choice
                , try parseBVar
                , parseTrue
                , parseFalse
+               , try parseBIf
                ]
-             <?> "simple bool expression" -- TODO add parseBIf -- if expression with boolean result
-                                          -- (with required else branch?)
+             <?> "simple bool expression"
 
 bBinaryTable :: [[E.Operator [TokenPos] ParseState Identity BExpr]]
 bBinaryTable = [ [prefix Not BNot]

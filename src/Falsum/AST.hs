@@ -46,6 +46,7 @@ data BExpr = BLit Bool
            | BVar Symbol
            | BCall Symbol [Expr]
            | BAssign LValue BExpr
+           | BIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
