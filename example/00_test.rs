@@ -38,4 +38,11 @@ fn main() {
     }
 
     let bAssign = if 1 < 2 {true;} else {false;}
+
+    a = 30;
+    a = b = c;
+
+    f1 = false;
+    let fl1: f32 = 2.3;
+    fl1 = 4.3;
 }

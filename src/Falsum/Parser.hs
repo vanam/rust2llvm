@@ -472,7 +472,8 @@ sLit =
       UnicodeString s -> return $ SExpr s
 
 parseITerm :: Parser IExpr
-parseITerm = choice [inParens parseIExpr, try parseICall, try parseIVar, parseILit]
+parseITerm = choice
+               [inParens parseIExpr, try parseICall, try parseIAssign, try parseIVar, parseILit]
              <?> "simple int expression" -- TODO add parseIIf -- if expression with integer result
                                          -- (with required else branch?)
 
@@ -504,6 +505,15 @@ parseIVar =
     checkVarType sym (IExpr (IVar sym))
     return $ IVar sym
 
+parseIAssign :: Parser IExpr
+parseIAssign =
+  do
+    varName <- parseSymbolName
+    sym <- safeLookupSymbol varName "Missing variable symbol: "
+    operator EqSign
+    assign <- parseIExpr
+    return $ IAssign (LValue sym) assign
+
 parseICall :: Parser IExpr
 parseICall =
   do
@@ -514,7 +524,8 @@ parseICall =
     return $ ICall fnSym fnParams
 
 parseFTerm :: Parser FExpr
-parseFTerm = choice [inParens parseFExpr, try parseFCall, try parseFVar, parseFLit]
+parseFTerm = choice
+               [inParens parseFExpr, try parseFCall, try parseFAssign, try parseFVar, parseFLit]
              <?> "simple float expression" -- TODO add parseFIf -- if expression with real result
                                            -- (with required else branch?)
 
@@ -551,11 +562,21 @@ parseFCall =
     checkFnCallParams fnSym fnParams
     return $ FCall fnSym fnParams
 
+parseFAssign :: Parser FExpr
+parseFAssign =
+  do
+    varName <- parseSymbolName
+    sym <- safeLookupSymbol varName "Missing variable symbol: "
+    operator EqSign
+    assign <- parseFExpr
+    return $ FAssign (LValue sym) assign
+
 parseBTerm :: Parser BExpr
 parseBTerm = choice
                [ inParens parseBExpr
                , try parseRelation
                , try parseBCall
+               , try parseBAssign
                , try parseBVar
                , parseTrue
                , parseFalse
@@ -595,6 +616,15 @@ parseBVar =
     checkVarType sym (BExpr (BVar sym))
     return $ BVar sym
 
+parseBAssign :: Parser BExpr
+parseBAssign =
+  do
+    varName <- parseSymbolName
+    sym <- safeLookupSymbol varName "Missing variable symbol: "
+    operator EqSign
+    assign <- parseBExpr
+    return $ BAssign (LValue sym) assign
+
 parseBCall :: Parser BExpr
 parseBCall =
   do
@@ -613,10 +643,15 @@ parseIRBinary =
     expr1 <- parseIExpr
     op <- satisfy isAnyOperator
     expr2 <- parseIExpr
-    return $ IRBinary (parseROp $ extractOp op) expr1 expr2
+    let rop = parseROp $ extractOp op
+    case rop of
+      Nothing -> unexpected "Unsupported operator"
+      _       -> return ()
+    return $ IRBinary (unmaybeOp rop) expr1 expr2
 
   where
     extractOp (Operator o) = o
+    unmaybeOp (Just op) = op
 
 parseFRBinary :: Parser BExpr
 parseFRBinary =
@@ -624,15 +659,21 @@ parseFRBinary =
     expr1 <- parseFExpr
     op <- satisfy isAnyOperator
     expr2 <- parseFExpr
-    return $ FRBinary (parseROp $ extractOp op) expr1 expr2
+    let rop = parseROp $ extractOp op
+    case rop of
+      Nothing -> unexpected "Unsupported operator"
+      _       -> return ()
+    return $ FRBinary (unmaybeOp rop) expr1 expr2
 
   where
     extractOp (Operator o) = o
+    unmaybeOp (Just op) = op
 
-parseROp :: Operator -> ROp
-parseROp Falsum.Lexer.Less = Falsum.AST.Less
-parseROp Falsum.Lexer.Leq = Falsum.AST.LessEqual
-parseROp Falsum.Lexer.Greater = Falsum.AST.Greater
-parseROp Falsum.Lexer.Geq = Falsum.AST.GreaterEqual
-parseROp Falsum.Lexer.DoubleEq = Falsum.AST.Equal
-parseROp Falsum.Lexer.Neq = Falsum.AST.NotEqual
+parseROp :: Operator -> Maybe ROp
+parseROp Falsum.Lexer.Less = Just Falsum.AST.Less
+parseROp Falsum.Lexer.Leq = Just Falsum.AST.LessEqual
+parseROp Falsum.Lexer.Greater = Just Falsum.AST.Greater
+parseROp Falsum.Lexer.Geq = Just Falsum.AST.GreaterEqual
+parseROp Falsum.Lexer.DoubleEq = Just Falsum.AST.Equal
+parseROp Falsum.Lexer.Neq = Just Falsum.AST.NotEqual
+parseROp _ = Nothing
