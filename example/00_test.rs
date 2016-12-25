@@ -36,4 +36,6 @@ fn main() {
     } else {
         let d = false;
     }
+
+    let bAssign = if 1 < 2 {true;} else {false;}
 }
