@@ -59,6 +59,9 @@ increaseRegisterNumber =
     current <- get
     put $ CodegenState (blockNumber current) (1 + registerNumber current)
 
+claimRegisterNumber :: State CodegenState Word
+claimRegisterNumber = currentRegisterNumber <* increaseRegisterNumber
+
 type SymbolToRegisterTable = [(F.Symbol, Name)]
 
 debug :: a -> String -> a
@@ -211,24 +214,21 @@ passArg :: F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute
 passArg expr
   | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr =
       do
-        freeRegister <- currentRegisterNumber
-        increaseRegisterNumber
+        freeRegister <- claimRegisterNumber
         return
           ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
            ], (LocalReference i32 (UnName freeRegister), []))
   | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr =
       do
-        freeRegister <- currentRegisterNumber
-        increaseRegisterNumber
+        freeRegister <- claimRegisterNumber
         return
           ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
            ], (LocalReference float (UnName freeRegister), []))
   | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr =
       do
-        freeRegister <- currentRegisterNumber
-        increaseRegisterNumber
+        freeRegister <- claimRegisterNumber
         return
           ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
@@ -385,10 +385,14 @@ staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
 
 formalArgs :: F.Symbol -> Parameter
-formalArgs (F.VarSymbol name F.Int) = Parameter i32 (Name name) []
-formalArgs (F.VarSymbol name F.Real) = Parameter float (Name name) []
-formalArgs (F.VarSymbol name F.Bool) = Parameter i8 (Name name) []
-formalArgs (F.VarSymbol _ F.String) = Parameter strPointerType (Name "") []
+formalArgs (F.VarSymbol name ty) =
+  case ty of
+    F.Int    -> param name i32
+    F.Real   -> param name float
+    F.Bool   -> param name i8
+    F.String -> param "" strPointerType
+  where
+    param n t = Parameter t (Name n) []
 
 fnLetInAST :: F.FnLet -> Global
 -- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
