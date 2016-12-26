@@ -27,6 +27,40 @@ import qualified LLVM.General.PrettyPrint           as PP
 
 import           Control.Monad
 import           Control.Monad.Trans.Except
+import           Control.Monad.Trans.State.Lazy
+
+data CodegenState = CodegenState { blockNumber :: Integer, registerNumber :: Integer }
+
+initialCodegenState :: CodegenState
+initialCodegenState = CodegenState 1 1
+
+type Codegen = State CodegenState
+
+currentBlockPrefix :: State CodegenState String
+currentBlockPrefix =
+  do
+    current <- get
+    return $ "_" ++ show (blockNumber current)
+
+increaseBlockPrefix :: State CodegenState ()
+increaseBlockPrefix =
+  do
+    current <- get
+    put $ CodegenState (1 + blockNumber current) (registerNumber current)
+
+nextBlockPrefix :: State CodegenState String
+nextBlockPrefix = get >>= return . evalState (increaseBlockPrefix >> currentBlockPrefix)
+
+currentRegisterNumber :: State CodegenState Integer
+currentRegisterNumber = registerNumber <$> get
+
+increaseRegisterNumber :: State CodegenState ()
+increaseRegisterNumber =
+  do
+    current <- get
+    put $ CodegenState (blockNumber current) (1 + registerNumber current)
+
+type SymbolToRegisterTable = [(Symbol, N.Name)]
 
 debug :: a -> String -> a
 debug = flip trace
@@ -115,118 +149,143 @@ body :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.Basi
 body name instructions terminator = [block name instructions terminator]
 
 -- TODO Generate all integer expressions, not just literal
-generateIExpression :: IExpr -> [I.Named I.Instruction]
+generateIExpression :: IExpr -> Codegen [I.Named I.Instruction]
 -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateIExpression iAssign
   | (IAssign (LValue (VarSymbol name Int)) (ILit val)) <- iAssign =
-      [ I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 (O.ConstantOperand $ i32Lit val)
-                 Nothing
-                 align4
-                 defaultInstrMeta
-      ]
+      return
+        [ I.Do $ I.Store
+                   False
+                   (O.LocalReference T.i32 (AST.Name name))
+                   (O.ConstantOperand $ i32Lit val)
+                   Nothing
+                   align4
+                   defaultInstrMeta
+        ]
   -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))
   | (IAssign (LValue (VarSymbol name Int)) (IVar (GlobalVarSymbol name2 _))) <- iAssign =
-      [ N.UnName 1 I.:= I.Load
-                          False
-                          (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
-                          Nothing
-                          align4
-                          defaultInstrMeta
-      , I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 (O.LocalReference T.i32 (N.UnName 1))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-      ]
+      return
+        [ N.UnName 1 I.:= I.Load
+                            False
+                            (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
+                            Nothing
+                            align4
+                            defaultInstrMeta
+        , I.Do $ I.Store
+                   False
+                   (O.LocalReference T.i32 (AST.Name name))
+                   (O.LocalReference T.i32 (N.UnName 1))
+                   Nothing
+                   align4
+                   defaultInstrMeta
+        ]
   -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
   | (IAssign (LValue (VarSymbol name Int)) (IVar (VarSymbol name2 _))) <- iAssign =
-      [ N.UnName 1 I.:= I.Load False (O.LocalReference T.i32 (AST.Name name2)) Nothing align4
-                          defaultInstrMeta
-      , I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 --  (O.LocalReference T.i32 (AST.Name name2))
-                 (O.LocalReference T.i32 (N.UnName 1))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-      ]
-  | otherwise = [] -- TODO
+      return
+        [ N.UnName 1 I.:= I.Load False (O.LocalReference T.i32 (AST.Name name2)) Nothing align4
+                            defaultInstrMeta
+        , I.Do $ I.Store
+                   False
+                   (O.LocalReference T.i32 (AST.Name name))
+                   --  (O.LocalReference T.i32 (AST.Name name2))
+                   (O.LocalReference T.i32 (N.UnName 1))
+                   Nothing
+                   align4
+                   defaultInstrMeta
+        ]
+  | otherwise = return [] -- TODO
 
 -- TODO Generate all expressions
-generateExpression :: Expr -> [I.Named I.Instruction]
+generateExpression :: Expr -> Codegen [I.Named I.Instruction]
 generateExpression (IExpr expr) = generateIExpression expr
 
-passArg :: Integer -> Expr -> ([I.Named I.Instruction], (O.Operand, [A.ParameterAttribute]))
-passArg counter expr
+register :: Integer -> N.Name
+register = N.UnName . fromInteger
+
+passArg :: Expr -> Codegen ([I.Named I.Instruction], (O.Operand, [A.ParameterAttribute]))
+passArg expr
   | (IExpr (IVar (VarSymbol name Int))) <- expr =
-      ([ N.UnName (fromInteger counter) I.:= I.Load
-                                               False
-                                               (O.LocalReference T.i32 (AST.Name name))
-                                               Nothing
-                                               align4
-                                               defaultInstrMeta
-       ], (O.LocalReference T.i32 (N.UnName (fromInteger counter)), []))
+      do
+        freeRegister <- currentRegisterNumber
+        increaseRegisterNumber
+        return
+          ([ register freeRegister I.:= I.Load
+                                          False
+                                          (O.LocalReference T.i32 (AST.Name name))
+                                          Nothing
+                                          align4
+                                          defaultInstrMeta
+           ], (O.LocalReference T.i32 (register freeRegister), []))
   | (FExpr (FVar (VarSymbol name Real))) <- expr =
-      ([ N.UnName (fromInteger counter) I.:= I.Load
-                                               False
-                                               (O.LocalReference T.i32 (AST.Name name))
-                                               Nothing
-                                               align4
-                                               defaultInstrMeta
-       ], (O.LocalReference T.float (N.UnName (fromInteger counter)), []))
-  | (BExpr (BVar (VarSymbol name Bool))) <- expr = ([ N.UnName (fromInteger counter) I.:= I.Load
-                                                                                            False
-                                                                                            (O.LocalReference
-                                                                                               T.i32
-                                                                                               (AST.Name
-                                                                                                  name))
-                                                                                            Nothing
-                                                                                            align4
-                                                                                            defaultInstrMeta
-                                                    ], (O.LocalReference T.i8
-                                                          (N.UnName (fromInteger counter)), []))
+      do
+        counter <- currentRegisterNumber
+        increaseRegisterNumber
+        return
+          ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                   False
+                                                   (O.LocalReference T.i32 (AST.Name name))
+                                                   Nothing
+                                                   align4
+                                                   defaultInstrMeta
+           ], (O.LocalReference T.float (N.UnName (fromInteger counter)), []))
+  | (BExpr (BVar (VarSymbol name Bool))) <- expr =
+      do
+        counter <- currentRegisterNumber
+        increaseRegisterNumber
+        return
+          ([ N.UnName (fromInteger counter) I.:= I.Load
+                                                   False
+                                                   (O.LocalReference T.i32 (AST.Name name))
+                                                   Nothing
+                                                   align4
+                                                   defaultInstrMeta
+           ], (O.LocalReference T.i8 (N.UnName (fromInteger counter)), []))
   -- SExpr (VarSymbol "format" String)
   | (SExpr (GlobalVarSymbol name String)) <- expr =
-      ([], (O.ConstantOperand
-              (C.GetElementPtr True (C.GlobalReference strPointerType (AST.Name name))
-                 [i32Lit 0, i32Lit 0]), []))
+      return
+        ([], (O.ConstantOperand
+                (C.GetElementPtr True (C.GlobalReference strPointerType (AST.Name name))
+                   [i32Lit 0, i32Lit 0]), []))
 
 -- TODO Generate all statements
-generateStatement :: Stmt -> [I.Named I.Instruction]
+generateStatement :: Stmt -> Codegen [I.Named I.Instruction]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement stmt
   | (VarLetStmt (VarLet (VarSymbol name Int) expr)) <- stmt =
-      (AST.Name name I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta) : generateExpression expr
+      do
+        allocInstr <- return (AST.Name name I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta)
+        initInstrs <- generateExpression expr
+        return $ allocInstr : initInstrs
   -- Expr (...)
   | (Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
   | (VCall (FnSymbol name Nothing) args) <- stmt =
-      let argsWithInstructions = zipWith passArg [1 ..] args
-      in concatMap fst argsWithInstructions
-         ++
-         [ I.Do $ I.Call
-                    Nothing
-                    CC.C
-                    []
-                    (Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False)
-                                                   (N.Name name))
-                    (map snd argsWithInstructions)
-                    [Left $ A.GroupID 0]
-                    defaultInstrMeta
-         ]
+      do
+        argsWithInstructions <- mapM passArg args
+        instructions <- return $ concatMap fst argsWithInstructions
+        call <- return
+                  [ I.Do $ I.Call
+                             Nothing
+                             CC.C
+                             []
+                             (Right $ O.ConstantOperand $ C.GlobalReference
+                                                            (T.FunctionType T.void [] False)
+                                                            (N.Name name))
+                             (map snd argsWithInstructions)
+                             [Left $ A.GroupID 0]
+                             defaultInstrMeta
+                  ]
+        return $ instructions ++ call
 
-generateStatements :: [Stmt] -> [I.Named I.Instruction]
-generateStatements = concatMap generateStatement
+generateStatements :: [Stmt] -> Codegen [I.Named I.Instruction]
+generateStatements stmts =
+  do
+    gens <- mapM generateStatement stmts
+    return $ concat gens
 
 -- TODO
-generateReturnTerminator :: Stmt -> I.Named I.Terminator
-generateReturnTerminator (Return e) = globalGen e
+generateReturnTerminator :: Stmt -> Codegen (I.Named I.Terminator)
+generateReturnTerminator (Return e) = return $ globalGen e
   where
     genILit l = I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
 
@@ -249,10 +308,12 @@ generateReturnTerminator stmt = error
                                    show stmt ++
                                    "' given.")
 
-makeBody :: [(Symbol, N.Name)] -> String -> [Stmt] -> [AST.BasicBlock]
-makeBody table blockName statements = [ block blockName (generateStatements $ init statements)
-                                          (generateReturnTerminator $ last statements)
-                                      ]
+makeBody :: SymbolToRegisterTable -> String -> [Stmt] -> Codegen [AST.BasicBlock]
+makeBody table blockName statements =
+  do
+    stmts <- generateStatements $ init statements
+    terminator <- generateReturnTerminator $ last statements
+    return [block blockName stmts terminator]
 
 constLetInAST :: ConstLet -> AST.Global
 {-|
@@ -334,7 +395,7 @@ formalArgs :: Symbol -> AST.Parameter
 formalArgs (VarSymbol name Int) = AST.Parameter T.i32 (N.Name name) []
 formalArgs (VarSymbol name Real) = AST.Parameter T.float (N.Name name) []
 formalArgs (VarSymbol name Bool) = AST.Parameter T.i8 (N.Name name) []
-formalArgs (VarSymbol name String) = AST.Parameter strPointerType (N.Name "") []
+formalArgs (VarSymbol _ String) = AST.Parameter strPointerType (N.Name "") []
 
 fnLetInAST :: FnLet -> AST.Global
 -- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
@@ -364,8 +425,10 @@ fnLetInAST (DeclareFnLet (FnSymbol name retType) arguments vararg) =
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
   case retType of
-    Nothing  -> gen T.void name $ makeBody table "entry-block" statements
-    Just Int -> gen T.i32 name $ makeBody table "entry-block" statements
+    Nothing -> gen T.void name $ evalState (makeBody table "entry-block" statements)
+                                   initialCodegenState
+    Just Int -> gen T.i32 name $ evalState (makeBody table "entry-block" statements)
+                                   initialCodegenState
   where
     gen t n bs = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
@@ -390,10 +453,10 @@ fnLetInAST (FnLet (FnSymbol name retType) arguments statements) =
     codeArgsToRegs = fst $ argsToRegs
     table = snd $ argsToRegs
 
-argToReg :: Symbol -> Word -> ([I.Named I.Instruction], (Symbol, N.Name))
-argToReg symbol regNumber = (argToRegInstructions symbol register, (symbol, register))
+argToReg :: Symbol -> Integer -> ([I.Named I.Instruction], (Symbol, N.Name))
+argToReg symbol regNumber = (argToRegInstructions symbol (register regNumber), (symbol, (register
+                                                                                           regNumber)))
   where
-    register = N.UnName regNumber
     argToRegInstructions sym reg
       | (VarSymbol name Int) <- sym =
           [ reg I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
