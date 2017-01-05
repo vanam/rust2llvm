@@ -34,6 +34,7 @@ data Stmt = ConstLetStmt ConstLet
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
+          | SExpr String
           | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
@@ -45,6 +46,7 @@ data BExpr = BLit Bool
            | BVar Symbol
            | BCall Symbol [Expr]
            | BAssign LValue BExpr
+  -- | BIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
@@ -53,6 +55,7 @@ data IExpr = ILit Integer
            | IBinary IOp IExpr IExpr
            | ICall Symbol [Expr]
            | IAssign LValue IExpr
+           | IIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data FExpr = FLit Float
@@ -61,10 +64,13 @@ data FExpr = FLit Float
            | FBinary FOp FExpr FExpr
            | FCall Symbol [Expr]
            | FAssign LValue FExpr
+  -- | FIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data BOp = BAnd
          | BOr
+         | BEq
+         | BNotEq
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus
@@ -99,13 +105,15 @@ data Scope = Scope [Symbol]
 
 data Symbol = GlobalVarSymbol String ValueType
             | VarSymbol String ValueType
-            | FnSymbol String (Maybe ValueType)
+            | FnSymbol String [ValueType] (Maybe ValueType)
+            | VariadicFnSymbol String [ValueType] (Maybe ValueType)
             | ConstSymbol String ValueType
   deriving (Show, Eq, Ord)
 
 data ValueType = Int
                | Real
                | Bool
+               | String
                | ArrayBool
                | ArrayInt
                | ArrayReal

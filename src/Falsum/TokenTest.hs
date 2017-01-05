@@ -40,6 +40,11 @@ isAnyLiteral :: Token -> Bool
 isAnyLiteral (Literal _) = True
 isAnyLiteral _ = False
 
+isStringLiteral :: Token -> Bool
+isStringLiteral (Literal (ByteString _)) = True
+isStringLiteral (Literal (UnicodeString _)) = True
+isStringLiteral _ = False
+
 isAnyLifeTime :: Token -> Bool
 isAnyLifeTime (LifeTime _) = True
 isAnyLifeTime _ = False
