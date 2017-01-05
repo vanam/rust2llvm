@@ -37,7 +37,8 @@ fn main() {
         let d = false;
     }
 
-    let bAssign = if 1 < 2 {true;} else {false;}
+    //let bAssign = if 1 < 2 {true;} else {false;}
+    let iAssign:i32 = if 1 < 2 {1;} else {2;}
 
     a = 30;
     a = b = c;
