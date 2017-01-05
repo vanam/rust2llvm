@@ -10,8 +10,8 @@ simple = Program [] [] []
               [VarLetStmt (VarLet (VarSymbol "test" Int) (IExpr (ILit 42)))])
 -}
 lowLevelMain :: String -> FnLet
-lowLevelMain highLevelMain = FnLet (FnSymbol "main" (Just Int)) []
-                               [ VCall (FnSymbol highLevelMain Nothing) []
+lowLevelMain highLevelMain = FnLet (FnSymbol "main" [] (Just Int)) []
+                               [ VCall (FnSymbol highLevelMain [] Nothing) []
                                , Return (Just (IExpr (ILit 0)))
                                ]
 
@@ -26,7 +26,7 @@ transformProgram newMain (Program consts vars fns mainFn) =
     (lowLevelMain newMain)
 
 transformSymbol :: String -> Symbol -> Symbol
-transformSymbol newMain (FnSymbol "main" ty) = FnSymbol newMain ty
+transformSymbol newMain (FnSymbol "main" [] ty) = FnSymbol newMain [] ty
 transformSymbol _ s = s
 
 transformStmt :: String -> Stmt -> Stmt

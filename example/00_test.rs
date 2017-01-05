@@ -4,6 +4,7 @@ const ANSWER: i32 = 42;
 
 fn foo (){
     let a: i32 = 21;
+    return;
 }
 
 fn bar (b:i32) -> i32 {
