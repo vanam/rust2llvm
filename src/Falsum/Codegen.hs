@@ -2,10 +2,11 @@ module Falsum.Codegen where
 
 --import Control.Monad hiding (void)
 import           Data.Char
-import           Data.Maybe
 import           Data.Word
 import           Debug.Trace
 import qualified Falsum.AST                         as F
+import           Falsum.Lexer                       (backwardLookup,
+                                                     forwardLookup)
 import           LLVM.General.AST                   hiding (GetElementPtr)
 import           LLVM.General.AST.AddrSpace
 import           LLVM.General.AST.Attribute
@@ -26,37 +27,66 @@ import           LLVM.General.PrettyPrint
 import           Control.Monad                      hiding (void)
 import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.State.Lazy
+import           Data.List
 
-data CodegenState = CodegenState { blockNumber :: Word, registerNumber :: Word }
+data CodegenState =
+       CodegenState
+         { blockIdentifierParts :: [Either String Word]
+         , registerNumber       :: Word
+         }
+  deriving Show
 
 initialCodegenState :: CodegenState
-initialCodegenState = CodegenState 1 1
+initialCodegenState = CodegenState [Right 1] 1
 
 type Codegen = State CodegenState
 
-currentBlockPrefix :: State CodegenState String
-currentBlockPrefix =
+blockIdentifier :: [Either String Word] -> String
+blockIdentifier parts = "_" ++ (intercalate "_" $ map (either id show) $ reverse parts)
+
+{-
+blockCounter :: [Either String Word] -> Maybe Word
+blockCounter [] = Nothing
+blockCounter ((Left _):xs) = blockCounter xs
+blockCounter ((Right x):_) = Just x
+-}
+modifyBlockCounter :: (Word -> Word) -> [Either String Word] -> [Either String Word]
+modifyBlockCounter _ [] = []
+modifyBlockCounter f ((Left _):xs) = modifyBlockCounter f xs
+modifyBlockCounter f ((Right x):xs) = (Right $ f x) : xs
+
+addNamedCounter' :: String -> [Either String Word] -> [Either String Word]
+addNamedCounter' name parts = Right 1 : Left name : parts
+
+modifyCodegen :: ([Either String Word] -> [Either String Word]) -> (Word -> Word) -> State CodegenState ()
+modifyCodegen a b =
   do
     current <- get
-    return $ "_" ++ show (blockNumber current)
+    put $ CodegenState (a . blockIdentifierParts $ current) (b . registerNumber $ current)
 
-increaseBlockPrefix :: State CodegenState ()
-increaseBlockPrefix =
-  do
-    current <- get
-    put $ CodegenState (1 + blockNumber current) (registerNumber current)
+addNamedCounter :: String -> State CodegenState ()
+addNamedCounter name = modifyCodegen (addNamedCounter' name) id
 
-nextBlockPrefix :: State CodegenState String
-nextBlockPrefix = get >>= return . evalState (increaseBlockPrefix >> currentBlockPrefix)
+removeNamedCounter :: State CodegenState ()
+removeNamedCounter = modifyCodegen (modifyBlockCounter id . tail) id
+
+currentBlockIdentifier :: State CodegenState String
+currentBlockIdentifier = blockIdentifier . blockIdentifierParts <$> get
+
+increaseBlockIdentifier :: State CodegenState ()
+increaseBlockIdentifier = modifyCodegen (modifyBlockCounter (+ 1)) id
+
+nextBlockIdentifier :: State CodegenState String
+nextBlockIdentifier = get >>= return . evalState (increaseBlockIdentifier >> currentBlockIdentifier)
+
+nextOuterBlockIdentifier :: State CodegenState String
+nextOuterBlockIdentifier = get >>= return . evalState (removeNamedCounter >> nextBlockIdentifier)
 
 currentRegisterNumber :: State CodegenState Word
 currentRegisterNumber = registerNumber <$> get
 
 increaseRegisterNumber :: State CodegenState ()
-increaseRegisterNumber =
-  do
-    current <- get
-    put $ CodegenState (blockNumber current) (1 + registerNumber current)
+increaseRegisterNumber = modifyCodegen id (+ 1)
 
 claimRegisterNumber :: State CodegenState Word
 claimRegisterNumber = currentRegisterNumber <* increaseRegisterNumber
@@ -73,8 +103,7 @@ simple :: F.Program
 simple = F.Program
            [ F.ConstLet (F.ConstSymbol "ANSWER" F.Int) (F.IntVal 42)
            , F.ConstLet (F.ConstSymbol "ANSWERE" F.Real) (F.RealVal 420)
-           , F.ConstLet (F.ConstSymbol "format" F.String) (F.StringVal "test %d\n\0")
-           , F.ConstLet (F.ConstSymbol "format2" F.String) (F.StringVal "a=%d b=%d c=%d\n\0")
+           , F.ConstLet (F.ConstSymbol "format" F.String) (F.StringVal "test %d\00")
            ]
            [ F.VarLet (F.GlobalVarSymbol "M" F.Int) (F.IExpr (F.ILit 5))
            , F.VarLet (F.GlobalVarSymbol "Moo" F.Real) (F.FExpr (F.FLit 55.5))
@@ -88,18 +117,7 @@ simple = F.Program
            , F.FnLet
                (F.FnSymbol "maine" (Just F.Int))
                [F.VarSymbol "a" F.Int, F.VarSymbol "b" F.Int]
-               [ F.VCall (F.FnSymbol "foo" Nothing) []
-               , F.VarLetStmt
-                   (F.VarLet (F.VarSymbol "c" F.Int)
-                      (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "c" F.Int)) (F.ILit 13))))
-               , F.VCall (F.FnSymbol "printf" Nothing)
-                   [ F.SExpr (F.GlobalVarSymbol "format2" F.String)
-                   , F.IExpr (F.IVar (F.VarSymbol "a" F.Int))
-                   , F.IExpr (F.IVar (F.VarSymbol "b" F.Int))
-                   , F.IExpr (F.IVar (F.VarSymbol "c" F.Int))
-                   ]
-               , F.Return (Just (F.IExpr (F.ILit 0)))
-               ]
+               [F.VCall (F.FnSymbol "foo" Nothing) [], F.Return (Just (F.IExpr (F.ILit 0)))]
            , F.DeclareFnLet (F.FnSymbol "printf" (Just F.Int)) [F.VarSymbol "" F.String] True
            ]
            (F.FnLet (F.FnSymbol "main" Nothing) []
@@ -110,7 +128,16 @@ simple = F.Program
                            (F.IVar (F.GlobalVarSymbol "M" F.Int)))))
               , F.VarLetStmt
                   (F.VarLet (F.VarSymbol "b" F.Int)
-                     (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "b" F.Int)) (F.ILit 42))))
+                     (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.ILit 42))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
               , F.VCall (F.FnSymbol "foo" Nothing) []
               , F.VCall (F.FnSymbol "maine" Nothing)
                   [ F.IExpr (F.IVar (F.VarSymbol "a" F.Int))
@@ -155,9 +182,6 @@ f32Lit = Float . Single
 
 defaultAddrSpace :: AddrSpace
 defaultAddrSpace = AddrSpace 0
-
-forwardLookup :: Eq a => [(a, b)] -> a -> Maybe b
-forwardLookup = flip lookup
 
 block :: String -> [Named Instruction] -> (Named Terminator) -> BasicBlock
 block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L75
@@ -215,39 +239,27 @@ generateIExpression iAssign
 generateExpression :: F.Expr -> Codegen [Named Instruction]
 generateExpression (F.IExpr expr) = generateIExpression expr
 
-passArg :: SymbolToRegisterTable -> F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute]))
-passArg table expr
+passArg :: F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute]))
+passArg expr
   | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr =
       do
-        let sym = forwardLookup table (F.VarSymbol name F.Int)
         freeRegister <- claimRegisterNumber
-        let load = fromMaybe (Name name) sym
-
         return
-          ([ UnName freeRegister := Load False (LocalReference i32 load) Nothing align4
+          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
            ], (LocalReference i32 (UnName freeRegister), []))
-
-
-
   | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr =
       do
-        let sym = forwardLookup table (F.VarSymbol name F.Real)
         freeRegister <- claimRegisterNumber
-        let load = fromMaybe (Name name) sym
-
         return
-          ([ UnName freeRegister := Load False (LocalReference float load) Nothing align4
+          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
            ], (LocalReference float (UnName freeRegister), []))
   | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr =
       do
-        let sym = forwardLookup table (F.VarSymbol name F.Bool)
         freeRegister <- claimRegisterNumber
-        let load = fromMaybe (Name name) sym
-
         return
-          ([ UnName freeRegister := Load False (LocalReference i8 load) Nothing align4
+          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
                                       defaultInstrMeta
            ], (LocalReference i8 (UnName freeRegister), []))
   -- SExpr (VarSymbol "format" String)
@@ -258,12 +270,12 @@ passArg table expr
                    [i32Lit 0, i32Lit 0]), []))
 
 -- TODO Generate all statements
-generateStatement :: SymbolToRegisterTable -> F.Stmt -> Codegen [Named Instruction]
+generateStatement :: F.Stmt -> Codegen [Named Instruction]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
-generateStatement table stmt
+generateStatement stmt
   | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Int) expr)) <- stmt =
       do
-        let allocInstr = Name name := Alloca i32 Nothing align4 defaultInstrMeta
+        allocInstr <- return (Name name := Alloca i32 Nothing align4 defaultInstrMeta)
         initInstrs <- generateExpression expr
         return $ allocInstr : initInstrs
   -- Expr (...)
@@ -271,24 +283,25 @@ generateStatement table stmt
   -- VCall (FnSymbol "foo" Nothing) [args]
   | (F.VCall (F.FnSymbol name Nothing) args) <- stmt =
       do
-        argsWithInstructions <- mapM (passArg table) args
-        let instructions = concatMap fst argsWithInstructions
-        let call = [ Do $ Call
-                            Nothing
-                            C
-                            []
-                            (Right $ ConstantOperand $ GlobalReference (FunctionType void [] False)
-                                                         (Name name))
-                            (map snd argsWithInstructions)
-                            [Left $ GroupID 0]
-                            defaultInstrMeta
-                   ]
+        argsWithInstructions <- mapM passArg args
+        instructions <- return $ concatMap fst argsWithInstructions
+        call <- return
+                  [ Do $ Call
+                           Nothing
+                           C
+                           []
+                           (Right $ ConstantOperand $ GlobalReference (FunctionType void [] False)
+                                                        (Name name))
+                           (map snd argsWithInstructions)
+                           [Left $ GroupID 0]
+                           defaultInstrMeta
+                  ]
         return $ instructions ++ call
 
-generateStatements :: SymbolToRegisterTable -> [F.Stmt] -> Codegen [Named Instruction]
-generateStatements table stmts =
+generateStatements :: [F.Stmt] -> Codegen [Named Instruction]
+generateStatements stmts =
   do
-    gens <- mapM (generateStatement table) stmts
+    gens <- mapM generateStatement stmts
     return $ concat gens
 
 -- TODO
@@ -319,7 +332,7 @@ generateReturnTerminator stmt = error
 makeBody :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
 makeBody table blockName statements =
   do
-    stmts <- generateStatements table $ init statements
+    stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
     return [block blockName stmts terminator]
 
@@ -463,12 +476,12 @@ fnLetInAST (F.FnLet (F.FnSymbol name retType) args statements) =
                       (Do $ Br (Name "entry-block") defaultInstrMeta) : bs)
                    Nothing
     argsToRegs = unzip $ zipWith argToReg args [1 ..]
-    codeArgsToRegs = fst argsToRegs
-    table = snd argsToRegs
+    codeArgsToRegs = fst $ argsToRegs
+    table = snd $ argsToRegs
 
 argToReg :: F.Symbol -> Word -> ([Named Instruction], (F.Symbol, Name))
-argToReg symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, UnName
-                                                                                        regNumber))
+argToReg symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, (UnName
+                                                                                         regNumber)))
   where
     argToRegInstructions sym reg
       | (F.VarSymbol name F.Int) <- sym =
@@ -524,11 +537,11 @@ programInAST (F.Program constLetList staticVarLetList fnLetList mainLet) = stati
                                                                            fnLetListInAST fnLetList ++
                                                                            mainInAST mainLet
 
-defaultFunctionAttributes :: Definition
-defaultFunctionAttributes = FunctionAttributes (GroupID 0) [NoUnwind, UWTable]
+defaultfunctionAttributes :: Definition
+defaultfunctionAttributes = FunctionAttributes (GroupID 0) [NoUnwind, UWTable]
 
 topLevelDefs :: F.Program -> [Definition]
-topLevelDefs program = defaultFunctionAttributes : fmap GlobalDefinition (programInAST program)
+topLevelDefs program = [defaultfunctionAttributes] ++ fmap GlobalDefinition (programInAST program)
 
 {-|
   TODO Set filename as module name
