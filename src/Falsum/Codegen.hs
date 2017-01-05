@@ -39,13 +39,13 @@ simple = Program
            [ VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
            , VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5))
            ]
-           [ FnLet (FnSymbol "foo" Nothing) []
+           [ FnLet (FnSymbol "foo" [] Nothing) []
                [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21))), Return Nothing]-- return
                                                                                           -- void
-           , FnLet (FnSymbol "maine" (Just Int)) []
-               [VCall (FnSymbol "foo" Nothing) [], Return (Just (IExpr (ILit 0)))]
+           , FnLet (FnSymbol "maine" [] (Just Int)) []
+               [VCall (FnSymbol "foo" [] Nothing) [], Return (Just (IExpr (ILit 0)))]
            ]
-           (FnLet (FnSymbol "main" Nothing) []
+           (FnLet (FnSymbol "main" [] Nothing) []
               [ VarLetStmt
                   (VarLet (VarSymbol "a" Int)
                      (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))) -- everything is mutable
@@ -54,7 +54,7 @@ simple = Program
                   (VarLet (VarSymbol "b" Int)
                      (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42)))) -- ANSWER value placed
               , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
-              , VCall (FnSymbol "foo" Nothing) []
+              , VCall (FnSymbol "foo" [] Nothing) []
               ,
               -- directly here
               Return Nothing
@@ -136,8 +136,8 @@ generateStatement stmt
       (AST.Name name I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta) : generateExpression expr
   -- Expr (...)
   | (Expr e) <- stmt = generateExpression e
-  -- VCall (FnSymbol "foo" Nothing) [] -- TODO Pass arguments
-  | (VCall (FnSymbol name Nothing) _) <- stmt =
+  -- VCall (FnSymbol "foo" [] Nothing) [] -- TODO Pass arguments
+  | (VCall (FnSymbol name [] Nothing) _) <- stmt =
       [ I.Do $ I.Call
                  Nothing
                  CC.C
@@ -326,7 +326,7 @@ staticVarLetListInAST = map staticVarLetInAST
 
 -- FnLet (FnSymbol "name" Nothing) [...] [...]
 fnLetInAST :: FnLet -> AST.Global
-fnLetInAST (FnLet (FnSymbol name retType) _ statements) =
+fnLetInAST (FnLet (FnSymbol name _ retType) _ statements) =
   case retType of
     Nothing  -> gen T.void name $ makeBody "entry-block" statements
     Just Int -> gen T.i32 name $ makeBody "entry-block" statements
@@ -355,14 +355,14 @@ fnLetListInAST = map fnLetInAST
 
 -- TODO Move this to the parser
 mainToPseudomain :: FnLet -> FnLet
-mainToPseudomain (FnLet (FnSymbol _ ret) args statements) = FnLet (FnSymbol "falsum_main" ret) args
+mainToPseudomain (FnLet (FnSymbol _ _ ret) args statements) = FnLet (FnSymbol "falsum_main" [] ret) args
                                                               statements
 
 -- TODO Move this to the parser
 mainInAST :: FnLet -> [AST.Global]
 mainInAST m = [ fnLetInAST $ mainToPseudomain m
-              , fnLetInAST $ FnLet (FnSymbol "main" (Just Int)) []
-                               [ VCall (FnSymbol "falsum_main" Nothing) []
+              , fnLetInAST $ FnLet (FnSymbol "main" [] (Just Int)) []
+                               [ VCall (FnSymbol "falsum_main" [] Nothing) []
                                , Return (Just (IExpr (ILit 0)))
                                ]
               ]
