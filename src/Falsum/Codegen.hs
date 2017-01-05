@@ -450,6 +450,13 @@ fnLetInAST (F.DeclareFnLet (F.FnSymbol name retType) args vararg) =
     Just F.Int -> genFn i32 name args vararg []
 fnLetInAST fnLet = evalState (fnLetInAST' fnLet) initialCodegenState
 
+withSimpleTerminator :: [Named Instruction] -> Codegen BasicBlock
+withSimpleTerminator instrs =
+  do
+    currentId <- currentBlockIdentifier
+    afterId <- nextBlockIdentifier
+    return $ block currentId instrs $ Do $ Br (Name afterId) defaultInstrMeta
+
 fnLetInAST' :: F.FnLet -> Codegen Global
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST' (F.FnLet (F.FnSymbol name retType) args statements) =
@@ -457,10 +464,7 @@ fnLetInAST' (F.FnLet (F.FnSymbol name retType) args statements) =
     argsToRegs <- unzip <$> mapM argToReg args
     codeArgsToRegs <- return $ fst argsToRegs
     table <- return $ snd argsToRegs
-    prologueBlockId <- currentBlockIdentifier
-    afterPrologueId <- nextBlockIdentifier
-    prologueBlock <- return $ block prologueBlockId (concat codeArgsToRegs)
-                                (Do $ Br (Name afterPrologueId) defaultInstrMeta)
+    prologueBlock <- withSimpleTerminator (concat codeArgsToRegs)
     increaseBlockIdentifier
     entryBlockId <- currentBlockIdentifier
     bodyBlocks <- stmtsInAST table entryBlockId statements
