@@ -261,7 +261,9 @@ parseIVarLet =
     ty <- parseType
     operator EqSign
     valueExpr <- parseIExpr
-    structSymbol Semicolon
+    case valueExpr of
+      IIf{} -> return ()
+      _     -> structSymbol Semicolon
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (IExpr valueExpr)
@@ -274,6 +276,11 @@ parseFVarLet =
     ty <- parseType
     operator EqSign
     valueExpr <- parseFExpr
+    {-
+    case valueExpr of
+      FIf{} -> return ()
+      _     -> structSymbol Semicolon
+    -}
     structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName ty
@@ -286,9 +293,12 @@ parseBinVarLet =
     symbName <- parseVarSymbolName
     operator EqSign
     valueExpr <- parseBExpr
+    {-
     case valueExpr of
       BIf{} -> return ()
       _     -> structSymbol Semicolon
+    -}
+    structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
@@ -445,6 +455,15 @@ parseElse = do
   keyword Else
   parseBlock
 
+parseIIf :: Parser IExpr
+parseIIf = do
+  keyword Falsum.Lexer.If
+  cond <- parseBExpr
+  ifBlock <- parseBlock
+  elseBlock <- parseElse
+  return $ IIf cond ifBlock elseBlock
+
+{-
 parseBIf :: Parser BExpr
 parseBIf = do
   keyword Falsum.Lexer.If
@@ -452,6 +471,15 @@ parseBIf = do
   ifBlock <- parseBlock
   elseBlock <- parseElse
   return $ BIf cond ifBlock elseBlock
+
+parseFIf :: Parser FExpr
+parseFIf = do
+  keyword Falsum.Lexer.If
+  cond <- parseBExpr
+  ifBlock <- parseBlock
+  elseBlock <- parseElse
+  return $ FIf cond ifBlock elseBlock
+-}
 
 parseVCall :: Parser Stmt
 parseVCall =
@@ -473,9 +501,14 @@ sLit =
 
 parseITerm :: Parser IExpr
 parseITerm = choice
-               [inParens parseIExpr, try parseICall, try parseIAssign, try parseIVar, parseILit]
-             <?> "simple int expression" -- TODO add parseIIf -- if expression with integer result
-                                         -- (with required else branch?)
+               [ inParens parseIExpr
+               , try parseICall
+               , try parseIAssign
+               , try parseIVar
+               , try parseIIf
+               , parseILit
+               ]
+             <?> "simple int expression"
 
 iBinaryTable :: [[E.Operator [TokenPos] ParseState Identity IExpr]]
 iBinaryTable = [ [prefix Minus INeg]
@@ -525,9 +558,14 @@ parseICall =
 
 parseFTerm :: Parser FExpr
 parseFTerm = choice
-               [inParens parseFExpr, try parseFCall, try parseFAssign, try parseFVar, parseFLit]
-             <?> "simple float expression" -- TODO add parseFIf -- if expression with real result
-                                           -- (with required else branch?)
+               [ inParens parseFExpr
+               , try parseFCall
+               , try parseFAssign
+               , try parseFVar
+              -- , try parseFIf
+               , parseFLit
+               ]
+             <?> "simple float expression"
 
 fBinaryTable :: [[E.Operator [TokenPos] ParseState Identity FExpr]]
 fBinaryTable = [ [prefix Minus FNeg]
@@ -580,7 +618,7 @@ parseBTerm = choice
                , try parseBVar
                , parseTrue
                , parseFalse
-               , try parseBIf
+               -- , try parseBIf
                ]
              <?> "simple bool expression"
 
