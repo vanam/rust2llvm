@@ -190,9 +190,6 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
                                        instructions
                                        terminator
 
-body :: String -> [Named Instruction] -> (Named Terminator) -> [BasicBlock]
-body name instructions terminator = [block name instructions terminator]
-
 -- TODO Generate all integer expressions, not just literal
 generateIExpression :: F.IExpr -> Codegen [Named Instruction]
 -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
@@ -329,8 +326,8 @@ generateReturnTerminator stmt = error
                                    show stmt ++
                                    "' given.")
 
-makeBody :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
-makeBody table blockName statements =
+stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
+stmtsInAST table blockName statements =
   do
     stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
@@ -414,101 +411,84 @@ staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
 
 formalArgs :: F.Symbol -> Parameter
-formalArgs (F.VarSymbol name ty) =
+formalArgs (F.VarSymbol name ty) = Parameter (genTy . Just $ ty) (Name name) []
+
+genTy :: (Maybe F.ValueType) -> Type
+genTy ty =
   case ty of
-    F.Int    -> param name i32
-    F.Real   -> param name float
-    F.Bool   -> param name i8
-    F.String -> param "" strPointerType
-  where
-    param n t = Parameter t (Name n) []
+    Nothing       -> void
+    Just F.Int    -> i32
+    Just F.Real   -> float
+    Just F.Bool   -> i8 -- shouldn't it be i1?
+    Just F.String -> strPointerType
+
+genFn :: Type -> String -> [F.Symbol] -> Bool -> [BasicBlock] -> Global
+genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                                     External
+                                     Default
+                                     Nothing
+                                     C
+                                     []
+                                     ty
+                                     (Name name)
+                                     (map formalArgs args, isVararg)
+                                     [Left $ GroupID 0]
+                                     Nothing
+                                     Nothing
+                                     defaultAlignment
+                                     Nothing
+                                     Nothing
+                                     body
+                                     Nothing
 
 fnLetInAST :: F.FnLet -> Global
 -- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
 fnLetInAST (F.DeclareFnLet (F.FnSymbol name retType) args vararg) =
   case retType of
-    Nothing    -> gen void name
-    Just F.Int -> gen i32 name
-  where
-    gen t n = Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+    Nothing    -> genFn void name args vararg []
+    Just F.Int -> genFn i32 name args vararg []
+fnLetInAST fnLet = evalState (fnLetInAST' fnLet) initialCodegenState
 
-                External
-                Default
-                Nothing
-                C
-                []
-                t
-                (Name n)
-                (map formalArgs args, vararg)
-                [Left $ GroupID 0]
-                Nothing
-                Nothing
-                defaultAlignment
-                Nothing
-                Nothing
-                []
-                Nothing
+fnLetInAST' :: F.FnLet -> Codegen Global
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
-fnLetInAST (F.FnLet (F.FnSymbol name retType) args statements) =
-  case retType of
-    Nothing -> gen void name $ evalState (makeBody table "entry-block" statements)
-                                 initialCodegenState
-    Just F.Int -> gen i32 name $ evalState (makeBody table "entry-block" statements)
-                                   initialCodegenState
-  where
-    gen t n bs = Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+fnLetInAST' (F.FnLet (F.FnSymbol name retType) args statements) =
+  do
+    argsToRegs <- unzip <$> mapM argToReg args
+    codeArgsToRegs <- return $ fst argsToRegs
+    table <- return $ snd argsToRegs
+    prologueBlockId <- currentBlockIdentifier
+    afterPrologueId <- nextBlockIdentifier
+    prologueBlock <- return $ block prologueBlockId (concat codeArgsToRegs)
+                                (Do $ Br (Name afterPrologueId) defaultInstrMeta)
+    increaseBlockIdentifier
+    entryBlockId <- currentBlockIdentifier
+    bodyBlocks <- stmtsInAST table entryBlockId statements
+    return $ genFn (genTy retType) name args False $ prologueBlock : bodyBlocks
 
-                   External
-                   Default
-                   Nothing
-                   C
-                   []
-                   t
-                   (Name n)
-                   (map formalArgs args, False)
-                   [Left $ GroupID 0]
-                   Nothing
-                   Nothing
-                   defaultAlignment
-                   Nothing
-                   Nothing
-                   (block "args-to-regs" (concat codeArgsToRegs)
-                      (Do $ Br (Name "entry-block") defaultInstrMeta) : bs)
-                   Nothing
-    argsToRegs = unzip $ zipWith argToReg args [1 ..]
-    codeArgsToRegs = fst $ argsToRegs
-    table = snd $ argsToRegs
+argToReg :: F.Symbol -> Codegen ([Named Instruction], (F.Symbol, Name))
+argToReg symbol =
+  do
+    regNumber <- claimRegisterNumber
+    return $ argToReg' symbol regNumber
 
-argToReg :: F.Symbol -> Word -> ([Named Instruction], (F.Symbol, Name))
-argToReg symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, (UnName
-                                                                                         regNumber)))
+argToReg' :: F.Symbol -> Word -> ([Named Instruction], (F.Symbol, Name))
+argToReg' symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, (UnName
+                                                                                          regNumber)))
   where
     argToRegInstructions sym reg
-      | (F.VarSymbol name F.Int) <- sym =
-          [ reg := Alloca i32 Nothing align4 defaultInstrMeta
-          , Do $ Store
-                   False
-                   (LocalReference i32 reg)
-                   (LocalReference i32 (Name name))
-                   Nothing
-                   align4
-                   defaultInstrMeta
-          ]
-      | (F.VarSymbol name F.Real) <- sym =
-          [ reg := Alloca float Nothing align4 defaultInstrMeta
-          , Do $ Store
-                   False
-                   (LocalReference float reg)
-                   (LocalReference float (Name name))
-                   Nothing
-                   align4
-                   defaultInstrMeta
-          ]
-      | (F.VarSymbol name F.Bool) <- sym =
-          [ reg := Alloca i1 Nothing align4 defaultInstrMeta
-          , Do $ Store False (LocalReference i1 reg) (LocalReference i1 (Name name)) Nothing align4
-                   defaultInstrMeta
-          ]
+      | (F.VarSymbol _ F.String) <- sym = undefined -- we don't support string values
+      | (F.VarSymbol name t) <- sym =
+          let ty = genTy . Just $ t
+          in [ reg := Alloca ty Nothing align4 defaultInstrMeta
+             , Do $ Store
+                      False
+                      (LocalReference ty reg)
+                      (LocalReference ty (Name name))
+                      Nothing
+                      align4
+                      defaultInstrMeta
+             ]
 
 fnLetListInAST :: [F.FnLet] -> [Global]
 fnLetListInAST = map fnLetInAST
