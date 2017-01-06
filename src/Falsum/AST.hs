@@ -30,13 +30,13 @@ data Stmt = ConstLetStmt ConstLet
           | Return (Maybe Expr)
           | Expr Expr
           | VCall Symbol [Expr]
+          | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
           | SExpr Symbol
-          | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
 data BExpr = BLit Bool
