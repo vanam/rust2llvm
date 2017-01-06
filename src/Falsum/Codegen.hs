@@ -457,6 +457,13 @@ withSimpleTerminator instrs =
     afterId <- nextBlockIdentifier
     return $ block currentId instrs $ Do $ Br (Name afterId) defaultInstrMeta
 
+joinBlock :: Codegen BasicBlock
+joinBlock =
+  do
+    currentId <- currentBlockIdentifier
+    outerId <- nextOuterBlockIdentifier
+    return $ block currentId [] $ Do $ Br (Name outerId) defaultInstrMeta
+
 fnLetInAST' :: F.FnLet -> Codegen Global
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
 fnLetInAST' (F.FnLet (F.FnSymbol name retType) args statements) =
