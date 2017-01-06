@@ -247,9 +247,8 @@ checkFnCallParams sym params
       last $ zipWith check types params
       return ()
   | (VariadicFnSymbol _ types _) <- sym = do
-    last $ zipWith check types params
-    return ()
-
+      last $ zipWith check types params
+      return ()
   where
     check Int (IExpr _) = return ()
     check Bool (BExpr _) = return ()
