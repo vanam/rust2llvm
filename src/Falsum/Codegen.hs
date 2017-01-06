@@ -17,7 +17,9 @@ import           LLVM.General.AST.Linkage
 import           LLVM.General.AST.Type
 import           LLVM.General.AST.Visibility
 -- import LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage as TLS
-import           LLVM.General.AST.Constant
+import           LLVM.General.AST.Constant          (Constant (Array, Float, GetElementPtr, GlobalReference, Int))
+-- TODO for constant expressions instructions
+import qualified LLVM.General.AST.Constant          as C
 import           LLVM.General.AST.Float
 --import qualified LLVM.General.AST.FloatingPointPredicate as FP
 import           LLVM.General.Context
@@ -196,44 +198,71 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
 -- TODO Generate all integer expressions, not just literal
 generateIExpression :: F.IExpr -> Codegen [Named Instruction]
 -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
-generateIExpression iAssign
-  | (F.IAssign (F.LValue (F.VarSymbol name F.Int)) (F.ILit val)) <- iAssign =
-      return
-        [ Do $ Store
-                 False
-                 (LocalReference i32 (Name name))
-                 (ConstantOperand $ i32Lit val)
-                 Nothing
-                 align4
+generateIExpression (F.ILit val) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return
+      [ reg := Alloca i32 Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference i32 reg) (ConstantOperand $ i32Lit val) Nothing align4
+               defaultInstrMeta
+      ]
+generateIExpression (F.IVar (F.VarSymbol name F.Int)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
+generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return
+      [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
-        ]
-  -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))
-  | (F.IAssign (F.LValue (F.VarSymbol name F.Int)) (F.IVar (F.GlobalVarSymbol name2 _))) <- iAssign =
-      return
-        [ UnName 1 := Load False (ConstantOperand (GlobalReference i32 (Name name2))) Nothing align4
-                        defaultInstrMeta
-        , Do $ Store
-                 False
-                 (LocalReference i32 (Name name))
-                 (LocalReference i32 (UnName 1))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-        ]
-  -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
-  | (F.IAssign (F.LValue (F.VarSymbol name F.Int)) (F.IVar (F.VarSymbol name2 _))) <- iAssign =
-      return
-        [ UnName 1 := Load False (LocalReference i32 (Name name2)) Nothing align4 defaultInstrMeta
-        , Do $ Store
-                 False
-                 (LocalReference i32 (Name name))
-                 --  (O.LocalReference T.i32 (AST.Name name2))
-                 (LocalReference i32 (UnName 1))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-        ]
-  | otherwise = return [] -- TODO
+      ]
+generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = undefined -- TODO
+generateIExpression (F.INeg expr) =
+  do
+    instrs <- generateIExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ instrs ++ [ reg := Sub
+                                  False
+                                  False
+                                  (ConstantOperand $ i32Lit 0)
+                                  (LocalReference i32 resultReg)
+                                  defaultInstrMeta
+                       ]
+generateIExpression (F.IBinary op leftExpr rightExpr) =
+  do
+    leftInstrs <- generateIExpression leftExpr
+    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    rightInstrs <- generateIExpression rightExpr
+    rightResultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ leftInstrs ++
+             rightInstrs ++
+             [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
+
+  where
+    opInstr l r =
+      case op of
+        F.IPlus  -> Add False False l r defaultInstrMeta
+        F.IMinus -> Sub False False l r defaultInstrMeta
+        F.IMult  -> Mul False False l r defaultInstrMeta
+        F.IDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
+        _        -> undefined -- TODO other operations
+generateIExpression (F.ICall symbol [argExprs]) = undefined -- TODO
+generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
+  do
+    instrs <- generateIExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ instrs ++ [ reg := Store
+                                  False
+                                  (LocalReference i32 (Name name))
+                                  (LocalReference i32 resultReg)
+                                  Nothing
+                                  align4
+                                  defaultInstrMeta
+                       ]
 
 -- TODO Generate all expressions
 generateExpression :: F.Expr -> Codegen [Named Instruction]
