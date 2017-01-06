@@ -276,11 +276,7 @@ parseFVarLet =
     ty <- parseType
     operator EqSign
     valueExpr <- parseFExpr
-    {-
-    case valueExpr of
-      FIf{} -> return ()
-      _     -> structSymbol Semicolon
-    -}structSymbol Semicolon
+    structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
@@ -292,11 +288,7 @@ parseBinVarLet =
     symbName <- parseVarSymbolName
     operator EqSign
     valueExpr <- parseBExpr
-    {-
-    case valueExpr of
-      BIf{} -> return ()
-      _     -> structSymbol Semicolon
-    -}structSymbol Semicolon
+    structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
