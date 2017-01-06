@@ -360,12 +360,13 @@ stmtsInAST _ _ statements = generateStatements statements
 {-do
     stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
-    -return [block blockName stmts terminator]-}constLetInAST :: F.ConstLet -> Global
+    -return [block blockName stmts terminator]-}
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
   ConstLet (ConstSymbol "format" String) (StringVal "test %d")
 -}
+constLetInAST :: F.ConstLet -> Global
 constLetInAST (F.ConstLet sym val)    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
  =
