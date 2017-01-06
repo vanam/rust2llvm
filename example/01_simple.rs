@@ -17,10 +17,12 @@ fn main() {
     // Mutable variable
     let mut b: i32 = ANSWER;
 
+    foo();
+    foo();
     let x: i32 = foo();
     foo();
 
-    //printf("shit %d", 5);
+    printf("shit %d", 5);
 
     return;
 }

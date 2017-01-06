@@ -237,13 +237,18 @@ checkVarType (VarSymbol _ String) (SExpr _) = return ()
 checkVarType _ _ = unexpected "Var type does not match"
 
 checkFnCallParams :: Symbol -> [Expr] -> Parser ()
+checkFnCallParams (VariadicFnSymbol _ [] _) [] = return ()
 checkFnCallParams (FnSymbol _ [] _) [] = return ()
-checkFnCallParams (FnSymbol _ types _) params = do
-  if length types /= length params
-    then unexpected "Arguments count does not match"
-    else return ()
-  last $ zipWith check types params
-  return ()
+checkFnCallParams sym params
+  | (FnSymbol _ types _) <- sym = do
+      if length types /= length params
+        then unexpected "Arguments count does not match"
+        else return ()
+      last $ zipWith check types params
+      return ()
+  | (VariadicFnSymbol _ types _) <- sym = do
+    last $ zipWith check types params
+    return ()
 
   where
     check Int (IExpr _) = return ()

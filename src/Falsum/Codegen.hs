@@ -257,7 +257,7 @@ passArg expr
   | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
   | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr = genPassing name i1
   -- SExpr (VarSymbol "format" String)
-  | (F.SExpr (F.GlobalVarSymbol name F.String)) <- expr =
+  | (F.SExpr (F.ConstSymbol name F.String)) <- expr =
       return
         ([], (ConstantOperand
                 (GetElementPtr True (GlobalReference strPointerType (Name name))
