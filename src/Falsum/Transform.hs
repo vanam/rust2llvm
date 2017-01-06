@@ -42,6 +42,6 @@ transformStmt rndStr stmt =
 
 transformFn :: String -> FnLet -> FnLet
 transformFn rndStr (FnLet sym args body) = FnLet
-                                              (transformSymbol rndStr sym)
-                                              (map (transformSymbol rndStr) args)
-                                              (map (transformStmt rndStr) body)
+                                             (transformSymbol rndStr sym)
+                                             (map (transformSymbol rndStr) args)
+                                             (map (transformStmt rndStr) body)

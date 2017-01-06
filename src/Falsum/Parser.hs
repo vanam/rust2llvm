@@ -13,9 +13,9 @@ import qualified Text.Parsec                         as P
 import qualified Text.Parsec.Expr                    as E
 import           Text.ParserCombinators.Parsec.Error
 
-import           Data.Functor.Identity
 import           Debug.Trace
 
+println :: Show a => a -> ParsecT [TokenPos] u Identity ()
 println msg = trace (show msg) $ return ()
 
 seeNext :: Int -> ParsecT [TokenPos] u Identity ()
@@ -266,7 +266,7 @@ parseIVarLet =
       _     -> structSymbol Semicolon
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
-    return $ VarLet forgedSymbol (IExpr valueExpr)
+    return $ VarLet forgedSymbol (IExpr (IAssign (LValue forgedSymbol) valueExpr))
 
 parseFVarLet :: Parser VarLet
 parseFVarLet =
@@ -280,7 +280,7 @@ parseFVarLet =
     state <- getState
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
-    return $ VarLet forgedSymbol (FExpr valueExpr)
+    return $ VarLet forgedSymbol (FExpr (FAssign (LValue forgedSymbol) valueExpr))
 
 parseBinVarLet :: Parser VarLet
 parseBinVarLet =
@@ -292,11 +292,7 @@ parseBinVarLet =
     state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
-    return $ VarLet forgedSymbol $ getExpr valueExpr
-
-  where
-    getExpr :: BExpr -> Expr
-    getExpr = BExpr
+    return $ VarLet forgedSymbol (BExpr (BAssign (LValue forgedSymbol) valueExpr))
 
 parseVarSymbolName :: Parser String
 parseVarSymbolName =

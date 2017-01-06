@@ -3,10 +3,10 @@ module Falsum.Codegen where
 --import Control.Monad hiding (void)
 import           Data.Char
 import           Data.Word
-import           Debug.Trace
+--import           Debug.Trace
 import qualified Falsum.AST                         as F
-import           Falsum.Lexer                       (backwardLookup,
-                                                     forwardLookup)
+{-import           Falsum.Lexer                       (backwardLookup,
+                                                     forwardLookup)-}
 import           LLVM.General.AST                   hiding (GetElementPtr)
 import           LLVM.General.AST.AddrSpace
 import           LLVM.General.AST.Attribute
@@ -18,8 +18,7 @@ import           LLVM.General.AST.Type
 import           LLVM.General.AST.Visibility
 -- import LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage as TLS
 import           LLVM.General.AST.Constant          (Constant (Array, Float, GetElementPtr, GlobalReference, Int))
--- TODO for constant expressions instructions
-import qualified LLVM.General.AST.Constant          as C
+-- TODO for constant expressions instructions import qualified LLVM.General.AST.Constant as C
 import           LLVM.General.AST.Float
 --import qualified LLVM.General.AST.FloatingPointPredicate as FP
 import           LLVM.General.Context
@@ -104,57 +103,6 @@ debug = const --flip trace
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
 
-simple :: F.Program
-simple = F.Program
-           [ F.ConstLet (F.ConstSymbol "ANSWER" F.Int) (F.IntVal 42)
-           , F.ConstLet (F.ConstSymbol "ANSWERE" F.Real) (F.RealVal 420)
-           , F.ConstLet (F.ConstSymbol "format" F.String) (F.StringVal "test %d\00")
-           ]
-           [ F.VarLet (F.GlobalVarSymbol "M" F.Int) (F.IExpr (F.ILit 5))
-           , F.VarLet (F.GlobalVarSymbol "Moo" F.Real) (F.FExpr (F.FLit 55.5))
-           ]
-           [ F.FnLet (F.FnSymbol "foo" [] Nothing) []
-               [ F.VarLetStmt
-                   (F.VarLet (F.VarSymbol "a" F.Int)
-                      (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.ILit 21))))
-               , F.Return Nothing
-               ]
-           , F.FnLet
-               (F.FnSymbol "maine" [F.Int, F.Int] (Just F.Int))
-               [F.VarSymbol "a" F.Int, F.VarSymbol "b" F.Int]
-               [F.VCall (F.FnSymbol "foo" [] Nothing) [], F.Return (Just (F.IExpr (F.ILit 0)))]
-           , F.DeclareFnLet (F.FnSymbol "printf" [F.String] (Just F.Int)) [F.VarSymbol "" F.String] True
-           ]
-           (F.FnLet (F.FnSymbol "main" [] Nothing) []
-              [ F.VarLetStmt
-                  (F.VarLet (F.VarSymbol "a" F.Int)
-                     (F.IExpr
-                        (F.IAssign (F.LValue (F.VarSymbol "a" F.Int))
-                           (F.IVar (F.GlobalVarSymbol "M" F.Int)))))
-              , F.VarLetStmt
-                  (F.VarLet (F.VarSymbol "b" F.Int)
-                     (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.ILit 42))))
-              , F.Expr
-                  (F.IExpr
-                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
-              , F.Expr
-                  (F.IExpr
-                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
-              , F.Expr
-                  (F.IExpr
-                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
-              , F.VCall (F.FnSymbol "foo" [] Nothing) []
-              , F.VCall (F.FnSymbol "maine" [F.Int, F.Int] Nothing)
-                  [ F.IExpr (F.IVar (F.VarSymbol "a" F.Int))
-                  , F.IExpr (F.IVar (F.VarSymbol "b" F.Int))
-                  ]
-              , F.VCall (F.FnSymbol "printf" [F.String] Nothing)
-                  [ F.SExpr (F.GlobalVarSymbol "format" F.String)
-                  , F.IExpr (F.IVar (F.VarSymbol "b" F.Int))
-                  ]
-              , F.Return Nothing
-              ])
-
 defaultInstrMeta :: InstructionMetadata
 defaultInstrMeta = []
 
@@ -217,7 +165,14 @@ generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
       [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
       ]
-generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = undefined -- TODO
+-- TODO use a const literal instead of a reference, AST has to/should be changed
+generateIExpression (F.IVar (F.ConstSymbol name F.Int)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return
+      [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
+                 defaultInstrMeta
+      ]
 generateIExpression (F.INeg expr) =
   do
     instrs <- generateIExpression expr
@@ -249,7 +204,10 @@ generateIExpression (F.IBinary op leftExpr rightExpr) =
         F.IMult  -> Mul False False l r defaultInstrMeta
         F.IDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
         _        -> undefined -- TODO other operations
-generateIExpression (F.ICall symbol [argExprs]) = undefined -- TODO
+generateIExpression (F.ICall symbol argExprs) =
+  case symbol of
+    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
+    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
 generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
   do
     instrs <- generateIExpression expr
@@ -263,6 +221,31 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
                                   align4
                                   defaultInstrMeta
                        ]
+
+genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [Named Instruction]
+genCall n aTys rTy isVararg argExprs = do
+  argsWithInstructions <- mapM passArg argExprs
+  instructions <- return $ concatMap fst argsWithInstructions
+  reg <- UnName <$> currentRegisterNumber
+  when (rTy /= Nothing) increaseRegisterNumber
+  call <- return
+            [ (if rTy == Nothing
+                 then Do
+                 else (reg :=)) $ Call
+                                    Nothing
+                                    C
+                                    []
+                                    (Right $ ConstantOperand $ GlobalReference
+                                                                 (FunctionType
+                                                                    (genTy rTy)
+                                                                    (map (genTy . Just) aTys)
+                                                                    isVararg)
+                                                                 (Name n))
+                                    (map snd argsWithInstructions)
+                                    [Left $ GroupID 0]
+                                    defaultInstrMeta
+            ]
+  return $ instructions ++ call
 
 -- TODO Generate all expressions
 generateExpression :: F.Expr -> Codegen [Named Instruction]
@@ -300,22 +283,9 @@ generateStatement stmt
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
-  | (F.VCall (F.FnSymbol name _ Nothing) args) <- stmt =
-      do
-        argsWithInstructions <- mapM passArg args
-        instructions <- return $ concatMap fst argsWithInstructions
-        call <- return
-                  [ Do $ Call
-                           Nothing
-                           C
-                           []
-                           (Right $ ConstantOperand $ GlobalReference (FunctionType void [] False)
-                                                        (Name name))
-                           (map snd argsWithInstructions)
-                           [Left $ GroupID 0]
-                           defaultInstrMeta
-                  ]
-        return $ instructions ++ call
+  | (F.VCall (F.FnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing False args
+  | (F.VCall (F.VariadicFnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing True
+                                                                    args
 
 generateStatements :: [F.Stmt] -> Codegen [Named Instruction]
 generateStatements stmts =
@@ -339,7 +309,7 @@ generateReturnTerminator stmt = error
                                    "' given.")
 
 stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
-stmtsInAST table blockName statements =
+stmtsInAST _ blockName statements =
   do
     stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
@@ -360,7 +330,7 @@ constLetInAST (F.ConstLet sym val)    -- https://github.com/bscarlet/llvm-genera
     ((F.ConstSymbol s F.String), (F.StringVal v)) -> genGVar True s (strArrayType (length v)) $ strLit
                                                                                                   v
   where
-    enrich = const "const"
+    enrich = id --const "const"
 
 constLetListInAST :: [F.ConstLet] -> [Global]
 constLetListInAST = map constLetInAST
@@ -391,11 +361,13 @@ staticVarLetInAST :: F.VarLet -> Global
   VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
   VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5)
 -}
+-- TODO bool
 staticVarLetInAST varLet =
   case varLet of
-    (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.ILit v))) -> genGVar False s i32 $ i32Lit $ toInteger
-                                                                                                    v
-    (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FLit v))) -> genGVar False s float $ f32Lit v
+    (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.IAssign _ (F.ILit v)))) -> genGVar False s i32 $ i32Lit $ toInteger
+                                                                                                                  v
+    (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FAssign _ (F.FLit v)))) -> genGVar False s
+                                                                                    float $ f32Lit v
 
 staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST

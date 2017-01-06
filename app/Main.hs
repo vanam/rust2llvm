@@ -3,9 +3,8 @@ module Main where
 import           Falsum.Codegen
 import           Falsum.Parser
 import           Falsum.Transform
---import           System.Directory (doesFileExist)
---import           System.IO        (hFlush, stdout)
 
+-- import System.Directory (doesFileExist) import System.IO (hFlush, stdout)
 {-
 yesno :: String -> IO Bool
 yesno prompt = do
@@ -45,7 +44,6 @@ main = do
     then main
     else return ()
 -}
-
 main :: IO ()
 main = do
   sourceCode <- getContents
