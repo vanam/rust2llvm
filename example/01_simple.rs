@@ -12,7 +12,7 @@ fn foo () -> i32 {
 
 fn main() {
     // Constatnt variable
-    let a: i32 = M;
+    let a: i32 = 5;
 
     // Mutable variable
     let mut b: i32 = ANSWER;
@@ -22,7 +22,7 @@ fn main() {
     let x: i32 = foo();
     foo();
 
-    printf("shit %d");//, 5);
+    printf("shit %d");//, a);
 
     return;
 }

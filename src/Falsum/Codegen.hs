@@ -144,12 +144,12 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
                                        terminator
 
 -- TODO Generate all integer expressions, not just literal
-generateIExpression :: F.IExpr -> Codegen [Named Instruction]
+generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateIExpression (F.ILit val) =
   do
     reg <- UnName <$> claimRegisterNumber
-    return
+    simpleBlock
       [ reg := Alloca i32 Nothing align4 defaultInstrMeta
       , Do $ Store False (LocalReference i32 reg) (ConstantOperand $ i32Lit val) Nothing align4
                defaultInstrMeta
@@ -157,11 +157,11 @@ generateIExpression (F.ILit val) =
 generateIExpression (F.IVar (F.VarSymbol name F.Int)) =
   do
     reg <- UnName <$> claimRegisterNumber
-    return [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
+    simpleBlock [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
 generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
   do
     reg <- UnName <$> claimRegisterNumber
-    return
+    simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
       ]
@@ -169,7 +169,7 @@ generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
 generateIExpression (F.IVar (F.ConstSymbol name F.Int)) =
   do
     reg <- UnName <$> claimRegisterNumber
-    return
+    simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
       ]
@@ -178,13 +178,14 @@ generateIExpression (F.INeg expr) =
     instrs <- generateIExpression expr
     resultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
-    return $ instrs ++ [ reg := Sub
+    bl <- simpleBlock [ reg := Sub
                                   False
                                   False
                                   (ConstantOperand $ i32Lit 0)
                                   (LocalReference i32 resultReg)
                                   defaultInstrMeta
                        ]
+    return $ instrs ++ bl
 generateIExpression (F.IBinary op leftExpr rightExpr) =
   do
     leftInstrs <- generateIExpression leftExpr
@@ -192,9 +193,10 @@ generateIExpression (F.IBinary op leftExpr rightExpr) =
     rightInstrs <- generateIExpression rightExpr
     rightResultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
     return $ leftInstrs ++
              rightInstrs ++
-             [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
+             bl
 
   where
     opInstr l r =
@@ -213,7 +215,7 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
     instrs <- generateIExpression expr
     resultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
-    return $ instrs ++ [ reg := Store
+    bl <- simpleBlock [ reg := Store
                                   False
                                   (LocalReference i32 (Name name))
                                   (LocalReference i32 resultReg)
@@ -221,8 +223,9 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
                                   align4
                                   defaultInstrMeta
                        ]
+    return $ instrs ++ bl
 
-genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [Named Instruction]
+genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
 genCall n aTys rTy isVararg argExprs = do
   argsWithInstructions <- mapM passArg argExprs
   instructions <- return $ concatMap fst argsWithInstructions
@@ -245,13 +248,14 @@ genCall n aTys rTy isVararg argExprs = do
                                     [Left $ GroupID 0]
                                     defaultInstrMeta
             ]
-  return $ instructions ++ call
+  bl <- simpleBlock call
+  return $ instructions ++ bl
 
 -- TODO Generate all expressions
-generateExpression :: F.Expr -> Codegen [Named Instruction]
+generateExpression :: F.Expr -> Codegen [BasicBlock]
 generateExpression (F.IExpr expr) = generateIExpression expr
 
-passArg :: F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute]))
+passArg :: F.Expr -> Codegen ([BasicBlock], (Operand, [ParameterAttribute]))
 passArg expr
   | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr = genPassing name i32
   | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
@@ -266,28 +270,32 @@ passArg expr
     genPassing name ty =
       do
         freeRegister <- claimRegisterNumber
+        bl <- simpleBlock [ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
+                                    defaultInstrMeta
+         ]
         return
-          ([ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
-                                      defaultInstrMeta
-           ], (LocalReference ty (UnName freeRegister), []))
+          (bl, (LocalReference ty (UnName freeRegister), []))
 
 -- TODO Generate all statements
-generateStatement :: F.Stmt -> Codegen [Named Instruction]
+generateStatement :: F.Stmt -> Codegen [BasicBlock]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement stmt
   | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Int) expr)) <- stmt =
       do
         allocInstr <- return (Name name := Alloca i32 Nothing align4 defaultInstrMeta)
+        bl <- simpleBlock [allocInstr]
         initInstrs <- generateExpression expr
-        return $ allocInstr : initInstrs
+        return $ bl ++ initInstrs
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
   | (F.VCall (F.FnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing False args
   | (F.VCall (F.VariadicFnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing True
-                                                                    args
+                                                                  args
+  | (F.Return _) <- stmt = returnBlock -- TODO return values
+-- | otherwise = fail $ show stmt
 
-generateStatements :: [F.Stmt] -> Codegen [Named Instruction]
+generateStatements :: [F.Stmt] -> Codegen [BasicBlock]
 generateStatements stmts =
   do
     gens <- mapM generateStatement stmts
@@ -309,11 +317,11 @@ generateReturnTerminator stmt = error
                                    "' given.")
 
 stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
-stmtsInAST _ blockName statements =
-  do
+stmtsInAST _ _ statements = generateStatements statements
+  {-do
     stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
-    return [block blockName stmts terminator]
+    -return [block blockName stmts terminator]-}
 
 constLetInAST :: F.ConstLet -> Global
 {-|
@@ -423,6 +431,19 @@ withSimpleTerminator instrs =
     currentId <- currentBlockIdentifier
     afterId <- nextBlockIdentifier
     return $ block currentId instrs $ Do $ Br (Name afterId) defaultInstrMeta
+
+simpleBlock :: [Named Instruction] -> Codegen [BasicBlock]
+simpleBlock instrs =
+  do bl <- withSimpleTerminator instrs
+     increaseBlockIdentifier
+     return [bl]
+
+-- TODO returning values
+returnBlock :: Codegen [BasicBlock]
+returnBlock =
+  do currentId <- currentBlockIdentifier
+     --increaseBlockIdentifier
+     return $ [block currentId [] $ Do $ Ret Nothing defaultInstrMeta]
 
 joinBlock :: Codegen BasicBlock
 joinBlock =
