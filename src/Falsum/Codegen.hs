@@ -82,6 +82,9 @@ nextBlockIdentifier = get >>= return . evalState (increaseBlockIdentifier >> cur
 nextOuterBlockIdentifier :: State CodegenState String
 nextOuterBlockIdentifier = get >>= return . evalState (removeNamedCounter >> nextBlockIdentifier)
 
+lastUsedRegisterNumber :: State CodegenState Word
+lastUsedRegisterNumber = (subtract 1 . registerNumber) <$> get
+
 currentRegisterNumber :: State CodegenState Word
 currentRegisterNumber = registerNumber <$> get
 
@@ -238,33 +241,23 @@ generateExpression (F.IExpr expr) = generateIExpression expr
 
 passArg :: F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute]))
 passArg expr
-  | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr =
-      do
-        freeRegister <- claimRegisterNumber
-        return
-          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
-                                      defaultInstrMeta
-           ], (LocalReference i32 (UnName freeRegister), []))
-  | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr =
-      do
-        freeRegister <- claimRegisterNumber
-        return
-          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
-                                      defaultInstrMeta
-           ], (LocalReference float (UnName freeRegister), []))
-  | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr =
-      do
-        freeRegister <- claimRegisterNumber
-        return
-          ([ UnName freeRegister := Load False (LocalReference i32 (Name name)) Nothing align4
-                                      defaultInstrMeta
-           ], (LocalReference i8 (UnName freeRegister), []))
+  | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr = genPassing name i32
+  | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
+  | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr = genPassing name i1
   -- SExpr (VarSymbol "format" String)
   | (F.SExpr (F.GlobalVarSymbol name F.String)) <- expr =
       return
         ([], (ConstantOperand
                 (GetElementPtr True (GlobalReference strPointerType (Name name))
                    [i32Lit 0, i32Lit 0]), []))
+  where
+    genPassing name ty =
+      do
+        freeRegister <- claimRegisterNumber
+        return
+          ([ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
+                                      defaultInstrMeta
+           ], (LocalReference ty (UnName freeRegister), []))
 
 -- TODO Generate all statements
 generateStatement :: F.Stmt -> Codegen [Named Instruction]
@@ -301,25 +294,15 @@ generateStatements stmts =
     gens <- mapM generateStatement stmts
     return $ concat gens
 
+genTerm :: Maybe Operand -> Named Terminator
+genTerm o = Do $ Ret o defaultInstrMeta
+
 -- TODO
 generateReturnTerminator :: F.Stmt -> Codegen (Named Terminator)
-generateReturnTerminator (F.Return e) = return $ globalGen e
+generateReturnTerminator (F.Return e) = return . genTerm . fmap conv $ e
   where
-    genILit l = Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
-
-                  (Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                     --  (Just $ O.ConstantOperand $ i32Lit $ toInteger l)
-                     (Just $ ConstantOperand $ i32Lit l)
-                     defaultInstrMeta)
-    genVoid = Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
-
-                (Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                   Nothing
-                   defaultInstrMeta)
-    globalGen (Just (F.IExpr (F.ILit l))) = genILit l
-    globalGen Nothing = genVoid
+    conv (F.IExpr (F.ILit l)) = ConstantOperand $ i32Lit l
+    conv _ = undefined -- TODO
 
 generateReturnTerminator stmt = error
                                   ("'generateReturnTerminator' accepts only Return statements, '" ++
@@ -339,47 +322,40 @@ constLetInAST :: F.ConstLet -> Global
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
   ConstLet (ConstSymbol "format" String) (StringVal "test %d")
 -}
-constLetInAST constLet    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+constLetInAST (F.ConstLet sym val)    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
  =
-  case constLet of
-    (F.ConstLet (F.ConstSymbol s F.Int) (F.IntVal v)) -> gen i32 (enrich s) $ i32Lit $ toInteger v
-    (F.ConstLet (F.ConstSymbol s F.Real) (F.RealVal v)) -> gen float (enrich s) $ f32Lit v
-    (F.ConstLet (F.ConstSymbol s F.String) (F.StringVal v)) -> genStr (strArrayType (length v)) s $ strLit
-                                                                                                      v
+  case (sym, val) of
+    ((F.ConstSymbol s F.Int), (F.IntVal v)) -> genGVar False (enrich s) i32 $ i32Lit $ toInteger v
+    ((F.ConstSymbol s F.Real), (F.RealVal v)) -> genGVar False (enrich s) float $ f32Lit v
+    ((F.ConstSymbol s F.String), (F.StringVal v)) -> genGVar True s (strArrayType (length v)) $ strLit
+                                                                                                  v
   where
-    gen t n v = GlobalVariable
-                  (Name n)
-                  Internal
-                  Default
-                  Nothing
-                  Nothing
-                  defaultAddrSpace
-                  True
-                  True
-                  t
-                  (Just v)
-                  Nothing
-                  Nothing
-                  align4
-    genStr t n v = GlobalVariable
-                     (Name n)
-                     Private
-                     Default
-                     Nothing
-                     Nothing
-                     defaultAddrSpace
-                     True
-                     True
-                     t
-                     (Just v)
-                     Nothing
-                     Nothing
-                     align1
     enrich = const "const"
 
 constLetListInAST :: [F.ConstLet] -> [Global]
 constLetListInAST = map constLetInAST
+
+genGVar :: Bool -> String -> Type -> Constant -> Global
+genGVar isStr name ty val = GlobalVariable  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+
+                              (Name name)
+                              (if isStr
+                                 then Private
+                                 else Internal)
+                              Default
+                              Nothing
+                              Nothing
+                              defaultAddrSpace
+                              False
+                              False
+                              ty
+                              (Just val)
+                              Nothing
+                              Nothing
+                              (if isStr
+                                 then align1
+                                 else align4)
 
 staticVarLetInAST :: F.VarLet -> Global
 {-|
@@ -388,24 +364,9 @@ staticVarLetInAST :: F.VarLet -> Global
 -}
 staticVarLetInAST varLet =
   case varLet of
-    (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.ILit v)))  -> gen i32 s $ i32Lit $ toInteger v
-    (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FLit v))) -> gen float s $ f32Lit v
-  where
-    gen t n v = GlobalVariable  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
-
-                  (Name n)
-                  Internal
-                  Default
-                  Nothing
-                  Nothing
-                  defaultAddrSpace
-                  False
-                  False
-                  t
-                  (Just v)
-                  Nothing
-                  Nothing
-                  align4
+    (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.ILit v))) -> genGVar False s i32 $ i32Lit $ toInteger
+                                                                                                    v
+    (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FLit v))) -> genGVar False s float $ f32Lit v
 
 staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
@@ -419,7 +380,7 @@ genTy ty =
     Nothing       -> void
     Just F.Int    -> i32
     Just F.Real   -> float
-    Just F.Bool   -> i8 -- shouldn't it be i1?
+    Just F.Bool   -> i1
     Just F.String -> strPointerType
 
 genFn :: Type -> String -> [F.Symbol] -> Bool -> [BasicBlock] -> Global
