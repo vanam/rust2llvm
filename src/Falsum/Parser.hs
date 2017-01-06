@@ -280,8 +280,7 @@ parseFVarLet =
     case valueExpr of
       FIf{} -> return ()
       _     -> structSymbol Semicolon
-    -}
-    structSymbol Semicolon
+    -}structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
@@ -297,8 +296,7 @@ parseBinVarLet =
     case valueExpr of
       BIf{} -> return ()
       _     -> structSymbol Semicolon
-    -}
-    structSymbol Semicolon
+    -}structSymbol Semicolon
     state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
@@ -480,7 +478,6 @@ parseFIf = do
   elseBlock <- parseElse
   return $ FIf cond ifBlock elseBlock
 -}
-
 parseVCall :: Parser Stmt
 parseVCall =
   do
@@ -496,8 +493,8 @@ sLit =
   do
     str <- satisfy isStringLiteral
     case token2Lit str of
-      ByteString s    -> return $ SExpr s
-      UnicodeString s -> return $ SExpr s
+      ByteString s    -> return $ SExpr (ConstSymbol s String)
+      UnicodeString s -> return $ SExpr (ConstSymbol s String)
 
 parseITerm :: Parser IExpr
 parseITerm = choice
@@ -558,13 +555,10 @@ parseICall =
 
 parseFTerm :: Parser FExpr
 parseFTerm = choice
-               [ inParens parseFExpr
-               , try parseFCall
-               , try parseFAssign
-               , try parseFVar
-              -- , try parseFIf
-               , parseFLit
-               ]
+               [inParens parseFExpr, try parseFCall, try parseFAssign, try parseFVar,
+                                                                                      -- , try
+                                                                                      -- parseFIf
+                                                                                      parseFLit]
              <?> "simple float expression"
 
 fBinaryTable :: [[E.Operator [TokenPos] ParseState Identity FExpr]]
@@ -618,8 +612,8 @@ parseBTerm = choice
                , try parseBVar
                , parseTrue
                , parseFalse
-               -- , try parseBIf
                ]
+             -- , try parseBIf
              <?> "simple bool expression"
 
 bBinaryTable :: [[E.Operator [TokenPos] ParseState Identity BExpr]]

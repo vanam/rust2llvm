@@ -34,7 +34,7 @@ data Stmt = ConstLetStmt ConstLet
 data Expr = BExpr BExpr
           | IExpr IExpr
           | FExpr FExpr
-          | SExpr String
+          | SExpr Symbol
           | If BExpr [Stmt] (Maybe [Stmt])
   deriving (Show, Eq, Ord)
 
