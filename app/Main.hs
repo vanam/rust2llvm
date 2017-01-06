@@ -58,5 +58,11 @@ main = do
       putStrLn "Parser fails:"
       putStrLn . show $ parserError
     Right (Right ast) -> do
-      randomSuffix <- randomString 20
-      codegen "stdin" (transformProgram ("main_" ++ randomSuffix) ast)
+      rnd <- randomString 20
+      putStrLn "Parser AST:"
+      putStrLn . show $ ast
+      transformedAst <- return $ transformProgram rnd ast
+      putStrLn "" >> putStrLn "Transformed AST:"
+      putStrLn . show $ transformedAst
+      putStrLn "" >> putStrLn "Codegen:"
+      codegen "stdin" transformedAst

@@ -21,24 +21,27 @@ randomString len = do
   return $ take len (randomRs ('a', 'z') g)
 
 transformProgram :: String -> Program -> Program
-transformProgram newMain (Program consts vars fns mainFn) =
-  Program consts vars (map (transformFn newMain) fns ++ [transformFn newMain mainFn])
-    (lowLevelMain newMain)
+transformProgram rndStr (Program consts vars fns mainFn) =
+  Program consts vars (map (transformFn rndStr) fns ++ [transformFn rndStr mainFn])
+    (lowLevelMain $ newMain rndStr)
+
+newMain :: String -> String
+newMain s = "main_" ++ s
 
 transformSymbol :: String -> Symbol -> Symbol
-transformSymbol newMain (FnSymbol "main" [] ty) = FnSymbol newMain [] ty
+transformSymbol rndStr (FnSymbol "main" [] ty) = FnSymbol (newMain rndStr) [] ty
 transformSymbol _ s = s
 
 transformStmt :: String -> Stmt -> Stmt
-transformStmt newMain stmt =
+transformStmt rndStr stmt =
   case stmt of
-    Loop stmts            -> Loop $ map (transformStmt newMain) stmts
-    While condition stmts -> While condition $ map (transformStmt newMain) stmts
-    VCall sym args        -> VCall (transformSymbol newMain sym) args
+    Loop stmts            -> Loop $ map (transformStmt rndStr) stmts
+    While condition stmts -> While condition $ map (transformStmt rndStr) stmts
+    VCall sym args        -> VCall (transformSymbol rndStr sym) args
     anything              -> anything
 
 transformFn :: String -> FnLet -> FnLet
-transformFn newMain (FnLet sym args body) = FnLet
-                                              (transformSymbol newMain sym)
-                                              (map (transformSymbol newMain) args)
-                                              (map (transformStmt newMain) body)
+transformFn rndStr (FnLet sym args body) = FnLet
+                                              (transformSymbol rndStr sym)
+                                              (map (transformSymbol rndStr) args)
+                                              (map (transformStmt rndStr) body)

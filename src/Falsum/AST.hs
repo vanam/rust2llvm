@@ -122,6 +122,7 @@ data ValueType = Int
 data Value = IntVal Int
            | RealVal Float
            | BoolVal Bool
+           | StringVal String
   deriving (Show, Eq, Ord)
 
 data LValue = LValue Symbol

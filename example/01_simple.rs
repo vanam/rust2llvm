@@ -14,4 +14,6 @@ fn main() {
 
     // Mutable variable
     let mut b: i32 = ANSWER;
+
+    printf("shit %d", a);
 }
