@@ -382,7 +382,7 @@ parseStmt = choice
               , parseWhile
               , parseReturn
               , try parseVCall
-              , Expr <$> parseIf
+              , parseIf
               , (Expr <$> parseExpr) <* structSymbol Semicolon
               ]
 
@@ -425,14 +425,9 @@ parseReturn = do
     mismatch r = unexpected $ "Return type does not match, expected: " ++ show r
 
 parseExpr :: Parser Expr
-parseExpr = choice
-              [ BExpr <$> try parseBExpr
-              , IExpr <$> try parseIExpr
-              , FExpr <$> try parseFExpr
-              , parseIf
-              ]
+parseExpr = choice [BExpr <$> try parseBExpr, IExpr <$> try parseIExpr, FExpr <$> try parseFExpr]
 
-parseIf :: Parser Expr
+parseIf :: Parser Stmt
 parseIf = do
   keyword Falsum.Lexer.If
   cond <- parseBExpr
