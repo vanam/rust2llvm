@@ -1,398 +1,522 @@
 module Falsum.Codegen where
 
+--import Control.Monad hiding (void)
+import           Data.Char
 import           Data.Word
 import           Debug.Trace
-import           Falsum.AST
-import qualified LLVM.General.AST                   as AST
+import qualified Falsum.AST                         as F
+import           Falsum.Lexer                       (backwardLookup,
+                                                     forwardLookup)
+import           LLVM.General.AST                   hiding (GetElementPtr)
 import           LLVM.General.AST.AddrSpace
-import qualified LLVM.General.AST.Attribute         as A
-import qualified LLVM.General.AST.CallingConvention as CC
-import qualified LLVM.General.AST.Instruction       as I
-import qualified LLVM.General.AST.Linkage           as L
-import qualified LLVM.General.AST.Name              as N
-import qualified LLVM.General.AST.Operand           as O
-import qualified LLVM.General.AST.Type              as T
-import qualified LLVM.General.AST.Visibility        as V
--- import qualified LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage
--- as TLS
+import           LLVM.General.AST.Attribute
+import           LLVM.General.AST.CallingConvention
+--import  LLVM.General.AST.Instruction hiding (GetElementPtr)
+import           LLVM.General.AST.Linkage
+-- import LLVM.General.AST.Name import LLVM.General.AST.Operand
+import           LLVM.General.AST.Type
+import           LLVM.General.AST.Visibility
+-- import LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage as TLS
+import           LLVM.General.AST.Constant          (Constant (Array, Float, GetElementPtr, GlobalReference, Int))
+-- TODO for constant expressions instructions
 import qualified LLVM.General.AST.Constant          as C
-import qualified LLVM.General.AST.Float             as F
+import           LLVM.General.AST.Float
 --import qualified LLVM.General.AST.FloatingPointPredicate as FP
-import qualified LLVM.General.Context               as CTX
-import qualified LLVM.General.Module                as MOD
-import qualified LLVM.General.PrettyPrint           as PP
+import           LLVM.General.Context
+import           LLVM.General.Module                hiding (Module)
+import           LLVM.General.PrettyPrint
 
-import           Control.Monad
+import           Control.Monad                      hiding (void)
 import           Control.Monad.Trans.Except
+import           Control.Monad.Trans.State.Lazy
+import           Data.List
+
+data CodegenState =
+       CodegenState
+         { blockIdentifierParts :: [Either String Word]
+         , registerNumber       :: Word
+         }
+  deriving Show
+
+initialCodegenState :: CodegenState
+initialCodegenState = CodegenState [Right 1] 1
+
+type Codegen = State CodegenState
+
+blockIdentifier :: [Either String Word] -> String
+blockIdentifier parts = "_" ++ (intercalate "_" $ map (either id show) $ reverse parts)
+
+{-
+blockCounter :: [Either String Word] -> Maybe Word
+blockCounter [] = Nothing
+blockCounter ((Left _):xs) = blockCounter xs
+blockCounter ((Right x):_) = Just x
+-}
+modifyBlockCounter :: (Word -> Word) -> [Either String Word] -> [Either String Word]
+modifyBlockCounter _ [] = []
+modifyBlockCounter f ((Left _):xs) = modifyBlockCounter f xs
+modifyBlockCounter f ((Right x):xs) = (Right $ f x) : xs
+
+addNamedCounter' :: String -> [Either String Word] -> [Either String Word]
+addNamedCounter' name parts = Right 1 : Left name : parts
+
+modifyCodegen :: ([Either String Word] -> [Either String Word]) -> (Word -> Word) -> State CodegenState ()
+modifyCodegen a b =
+  do
+    current <- get
+    put $ CodegenState (a . blockIdentifierParts $ current) (b . registerNumber $ current)
+
+addNamedCounter :: String -> State CodegenState ()
+addNamedCounter name = modifyCodegen (addNamedCounter' name) id
+
+removeNamedCounter :: State CodegenState ()
+removeNamedCounter = modifyCodegen (modifyBlockCounter id . tail) id
+
+currentBlockIdentifier :: State CodegenState String
+currentBlockIdentifier = blockIdentifier . blockIdentifierParts <$> get
+
+increaseBlockIdentifier :: State CodegenState ()
+increaseBlockIdentifier = modifyCodegen (modifyBlockCounter (+ 1)) id
+
+nextBlockIdentifier :: State CodegenState String
+nextBlockIdentifier = get >>= return . evalState (increaseBlockIdentifier >> currentBlockIdentifier)
+
+nextOuterBlockIdentifier :: State CodegenState String
+nextOuterBlockIdentifier = get >>= return . evalState (removeNamedCounter >> nextBlockIdentifier)
+
+lastUsedRegisterNumber :: State CodegenState Word
+lastUsedRegisterNumber = (subtract 1 . registerNumber) <$> get
+
+currentRegisterNumber :: State CodegenState Word
+currentRegisterNumber = registerNumber <$> get
+
+increaseRegisterNumber :: State CodegenState ()
+increaseRegisterNumber = modifyCodegen id (+ 1)
+
+claimRegisterNumber :: State CodegenState Word
+claimRegisterNumber = currentRegisterNumber <* increaseRegisterNumber
+
+type SymbolToRegisterTable = [(F.Symbol, Name)]
 
 debug :: a -> String -> a
-debug = flip trace
+debug = const --flip trace
 
 liftError :: ExceptT String IO a -> IO a
 liftError = runExceptT >=> either fail return
 
-simple :: Program
-simple = Program
-           [ ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
-           , ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
+simple :: F.Program
+simple = F.Program
+           [ F.ConstLet (F.ConstSymbol "ANSWER" F.Int) (F.IntVal 42)
+           , F.ConstLet (F.ConstSymbol "ANSWERE" F.Real) (F.RealVal 420)
+           , F.ConstLet (F.ConstSymbol "format" F.String) (F.StringVal "test %d\00")
            ]
-           [ VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
-           , VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5))
+           [ F.VarLet (F.GlobalVarSymbol "M" F.Int) (F.IExpr (F.ILit 5))
+           , F.VarLet (F.GlobalVarSymbol "Moo" F.Real) (F.FExpr (F.FLit 55.5))
            ]
-           [ FnLet (FnSymbol "foo" [] Nothing) []
-               [VarLetStmt (VarLet (VarSymbol "a" Int) (IExpr (ILit 21))), Return Nothing]-- return
-                                                                                          -- void
-           , FnLet (FnSymbol "maine" [] (Just Int)) []
-               [VCall (FnSymbol "foo" [] Nothing) [], Return (Just (IExpr (ILit 0)))]
+           [ F.FnLet (F.FnSymbol "foo" [] Nothing) []
+               [ F.VarLetStmt
+                   (F.VarLet (F.VarSymbol "a" F.Int)
+                      (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.ILit 21))))
+               , F.Return Nothing
+               ]
+           , F.FnLet
+               (F.FnSymbol "maine" [F.Int, F.Int] (Just F.Int))
+               [F.VarSymbol "a" F.Int, F.VarSymbol "b" F.Int]
+               [F.VCall (F.FnSymbol "foo" [] Nothing) [], F.Return (Just (F.IExpr (F.ILit 0)))]
+           , F.DeclareFnLet (F.FnSymbol "printf" [F.String] (Just F.Int)) [F.VarSymbol "" F.String] True
            ]
-           (FnLet (FnSymbol "main" [] Nothing) []
-              [ VarLetStmt
-                  (VarLet (VarSymbol "a" Int)
-                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))) -- everything is mutable
+           (F.FnLet (F.FnSymbol "main" [] Nothing) []
+              [ F.VarLetStmt
+                  (F.VarLet (F.VarSymbol "a" F.Int)
+                     (F.IExpr
+                        (F.IAssign (F.LValue (F.VarSymbol "a" F.Int))
+                           (F.IVar (F.GlobalVarSymbol "M" F.Int)))))
+              , F.VarLetStmt
+                  (F.VarLet (F.VarSymbol "b" F.Int)
+                     (F.IExpr (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.ILit 42))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
+              , F.Expr
+                  (F.IExpr
+                     (F.IAssign (F.LValue (F.VarSymbol "a" F.Int)) (F.IVar (F.VarSymbol "b" F.Int))))
+              , F.VCall (F.FnSymbol "foo" [] Nothing) []
+              , F.VCall (F.FnSymbol "maine" [F.Int, F.Int] Nothing)
+                  [ F.IExpr (F.IVar (F.VarSymbol "a" F.Int))
+                  , F.IExpr (F.IVar (F.VarSymbol "b" F.Int))
+                  ]
+              , F.VCall (F.FnSymbol "printf" [F.String] Nothing)
+                  [ F.SExpr (F.GlobalVarSymbol "format" F.String)
+                  , F.IExpr (F.IVar (F.VarSymbol "b" F.Int))
+                  ]
+              , F.Return Nothing
+              ])
 
-              , VarLetStmt
-                  (VarLet (VarSymbol "b" Int)
-                     (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42)))) -- ANSWER value placed
-              , Expr (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
-              , VCall (FnSymbol "foo" [] Nothing) []
-              ,
-              -- directly here
-              Return Nothing
-              ]-- return void
-            )
-
-defaultInstrMeta :: I.InstructionMetadata
+defaultInstrMeta :: InstructionMetadata
 defaultInstrMeta = []
 
 defaultAlignment :: Word32
 defaultAlignment = 0
 
+align1 :: Word32
+align1 = 1
+
 align4 :: Word32
 align4 = 4
 
-i32Lit :: Integer -> C.Constant
-i32Lit = C.Int 32
+strPointerType :: Type
+strPointerType = PointerType i8 (AddrSpace 0)
 
-f32Lit :: Float -> C.Constant
-f32Lit = C.Float . F.Single
+strArrayType :: Int -> Type
+strArrayType len = ArrayType (toEnum len) i8
+
+i32Lit :: Integer -> Constant
+i32Lit = Int 32
+
+charLit :: Char -> Constant
+charLit c = Int 8 $ toInteger (ord c)
+
+strLit :: String -> Constant
+strLit s = Array (strArrayType (length s)) $ map charLit s
+
+f32Lit :: Float -> Constant
+f32Lit = Float . Single
 
 defaultAddrSpace :: AddrSpace
 defaultAddrSpace = AddrSpace 0
 
-block :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> AST.BasicBlock
-block name instructions terminator = AST.BasicBlock  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L75
+block :: String -> [Named Instruction] -> (Named Terminator) -> BasicBlock
+block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L75
 
-                                       (AST.Name name)
+                                       (Name name)
                                        instructions
                                        terminator
 
-body :: String -> [I.Named I.Instruction] -> (I.Named I.Terminator) -> [AST.BasicBlock]
-body name instructions terminator = [block name instructions terminator]
-
 -- TODO Generate all integer expressions, not just literal
-generateIExpression :: IExpr -> [I.Named I.Instruction]
+generateIExpression :: F.IExpr -> Codegen [Named Instruction]
 -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
-generateIExpression iAssign
-  | (IAssign (LValue (VarSymbol name Int)) (ILit val)) <- iAssign =
-      [ I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 (O.ConstantOperand $ i32Lit val)
-                 Nothing
-                 align4
+generateIExpression (F.ILit val) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return
+      [ reg := Alloca i32 Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference i32 reg) (ConstantOperand $ i32Lit val) Nothing align4
+               defaultInstrMeta
+      ]
+generateIExpression (F.IVar (F.VarSymbol name F.Int)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
+generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    return
+      [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
       ]
-  -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (GlobalVarSymbol "M" Int))))
-  | (IAssign (LValue (VarSymbol name Int)) (IVar (GlobalVarSymbol name2 _))) <- iAssign =
-      [ I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 (O.ConstantOperand (C.GlobalReference T.i32 (AST.Name name2)))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-      ]
-  -- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (IVar (VarSymbol "b" Int))))
-  | (IAssign (LValue (VarSymbol name Int)) (IVar (VarSymbol name2 _))) <- iAssign =
-      [ I.Do $ I.Store
-                 False
-                 (O.LocalReference T.i32 (AST.Name name))
-                 (O.LocalReference T.i32 (AST.Name name2))
-                 Nothing
-                 align4
-                 defaultInstrMeta
-      ]
-  | otherwise = [] -- TODO
+generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = undefined -- TODO
+generateIExpression (F.INeg expr) =
+  do
+    instrs <- generateIExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ instrs ++ [ reg := Sub
+                                  False
+                                  False
+                                  (ConstantOperand $ i32Lit 0)
+                                  (LocalReference i32 resultReg)
+                                  defaultInstrMeta
+                       ]
+generateIExpression (F.IBinary op leftExpr rightExpr) =
+  do
+    leftInstrs <- generateIExpression leftExpr
+    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    rightInstrs <- generateIExpression rightExpr
+    rightResultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ leftInstrs ++
+             rightInstrs ++
+             [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
+
+  where
+    opInstr l r =
+      case op of
+        F.IPlus  -> Add False False l r defaultInstrMeta
+        F.IMinus -> Sub False False l r defaultInstrMeta
+        F.IMult  -> Mul False False l r defaultInstrMeta
+        F.IDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
+        _        -> undefined -- TODO other operations
+generateIExpression (F.ICall symbol [argExprs]) = undefined -- TODO
+generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
+  do
+    instrs <- generateIExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    return $ instrs ++ [ reg := Store
+                                  False
+                                  (LocalReference i32 (Name name))
+                                  (LocalReference i32 resultReg)
+                                  Nothing
+                                  align4
+                                  defaultInstrMeta
+                       ]
 
 -- TODO Generate all expressions
-generateExpression :: Expr -> [I.Named I.Instruction]
-generateExpression (IExpr expr) = generateIExpression expr
+generateExpression :: F.Expr -> Codegen [Named Instruction]
+generateExpression (F.IExpr expr) = generateIExpression expr
+
+passArg :: F.Expr -> Codegen ([Named Instruction], (Operand, [ParameterAttribute]))
+passArg expr
+  | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr = genPassing name i32
+  | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
+  | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr = genPassing name i1
+  -- SExpr (VarSymbol "format" String)
+  | (F.SExpr (F.GlobalVarSymbol name F.String)) <- expr =
+      return
+        ([], (ConstantOperand
+                (GetElementPtr True (GlobalReference strPointerType (Name name))
+                   [i32Lit 0, i32Lit 0]), []))
+  where
+    genPassing name ty =
+      do
+        freeRegister <- claimRegisterNumber
+        return
+          ([ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
+                                      defaultInstrMeta
+           ], (LocalReference ty (UnName freeRegister), []))
 
 -- TODO Generate all statements
-generateStatement :: Stmt -> [I.Named I.Instruction]
+generateStatement :: F.Stmt -> Codegen [Named Instruction]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement stmt
-  | (VarLetStmt (VarLet (VarSymbol name Int) expr)) <- stmt =
-      (AST.Name name I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta) : generateExpression expr
+  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Int) expr)) <- stmt =
+      do
+        allocInstr <- return (Name name := Alloca i32 Nothing align4 defaultInstrMeta)
+        initInstrs <- generateExpression expr
+        return $ allocInstr : initInstrs
   -- Expr (...)
-  | (Expr e) <- stmt = generateExpression e
-  -- VCall (FnSymbol "foo" [] Nothing) [] -- TODO Pass arguments
-  | (VCall (FnSymbol name [] Nothing) _) <- stmt =
-      [ I.Do $ I.Call
-                 Nothing
-                 CC.C
-                 []
-                 (Right $ O.ConstantOperand $ C.GlobalReference (T.FunctionType T.void [] False)
-                                                (N.Name name))
-                 []
-                 [Left $ A.GroupID 0]
-                 defaultInstrMeta
-      ]
+  | (F.Expr e) <- stmt = generateExpression e
+  -- VCall (FnSymbol "foo" Nothing) [args]
+  | (F.VCall (F.FnSymbol name _ Nothing) args) <- stmt =
+      do
+        argsWithInstructions <- mapM passArg args
+        instructions <- return $ concatMap fst argsWithInstructions
+        call <- return
+                  [ Do $ Call
+                           Nothing
+                           C
+                           []
+                           (Right $ ConstantOperand $ GlobalReference (FunctionType void [] False)
+                                                        (Name name))
+                           (map snd argsWithInstructions)
+                           [Left $ GroupID 0]
+                           defaultInstrMeta
+                  ]
+        return $ instructions ++ call
 
-generateStatements :: [Stmt] -> [I.Named I.Instruction]
-generateStatements = concatMap generateStatement
+generateStatements :: [F.Stmt] -> Codegen [Named Instruction]
+generateStatements stmts =
+  do
+    gens <- mapM generateStatement stmts
+    return $ concat gens
+
+genTerm :: Maybe Operand -> Named Terminator
+genTerm o = Do $ Ret o defaultInstrMeta
 
 -- TODO
-generateReturnTerminator :: Stmt -> I.Named I.Terminator
-generateReturnTerminator (Return e) = globalGen e
+generateReturnTerminator :: F.Stmt -> Codegen (Named Terminator)
+generateReturnTerminator (F.Return e) = return . genTerm . fmap conv $ e
   where
-    genILit l = I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
-
-                  (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                     --  (Just $ O.ConstantOperand $ i32Lit $ toInteger l)
-                     (Just $ O.ConstantOperand $ i32Lit l)
-                     defaultInstrMeta)
-    genVoid = I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L415
-
-                (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.5/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                   Nothing
-                   defaultInstrMeta)
-    globalGen (Just (IExpr (ILit l))) = genILit l
-    globalGen Nothing = genVoid
+    conv (F.IExpr (F.ILit l)) = ConstantOperand $ i32Lit l
+    conv _ = undefined -- TODO
 
 generateReturnTerminator stmt = error
                                   ("'generateReturnTerminator' accepts only Return statements, '" ++
                                    show stmt ++
                                    "' given.")
 
-makeBody :: String -> [Stmt] -> [AST.BasicBlock]
-makeBody blockName statements = [ block blockName (generateStatements $ init statements)
-                                    (generateReturnTerminator $ last statements)
-                                ]
+stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
+stmtsInAST table blockName statements =
+  do
+    stmts <- generateStatements $ init statements
+    terminator <- generateReturnTerminator $ last statements
+    return [block blockName stmts terminator]
 
--- TODO
-simple_foo :: AST.Global
-simple_foo = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
-
-               L.Internal
-               V.Default
-               Nothing
-               CC.C
-               []
-               T.void
-               (AST.Name "foo")
-               ([], False)
-               [Left $ A.GroupID 0]
-               Nothing
-               Nothing
-               defaultAlignment
-               Nothing
-               Nothing
-               (body
-                  "entry-block"
-                  [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing align4 defaultInstrMeta
-                  , I.Do $ I.Store
-                             False
-                             (O.LocalReference T.i32 (AST.Name "a"))
-                             (O.ConstantOperand $ i32Lit 21)
-                             Nothing
-                             align4
-                             defaultInstrMeta
-                  ]
-                  (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L417
-
-                     (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                        Nothing
-                        defaultInstrMeta)))
-               Nothing
-
--- TODO
-simple_main :: AST.Global
-simple_main = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
-
-                L.External
-                V.Default
-                Nothing
-                CC.C
-                []
-                T.void
-                (AST.Name "main")
-                ([], False)
-                [Left $ A.GroupID 0]
-                Nothing
-                Nothing
-                defaultAlignment
-                Nothing
-                Nothing
-                (body
-                   "entry-block"
-                   [ (AST.Name "a") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
-                   , (AST.Name "b") I.:= I.Alloca T.i32 Nothing defaultAlignment defaultInstrMeta
-                   , I.Do $ I.Store
-                              False
-                              (O.LocalReference T.i32 (AST.Name "a"))
-                              (O.ConstantOperand $ i32Lit 5)
-                              Nothing
-                              align4
-                              defaultInstrMeta
-                   , I.Do $ I.Store
-                              False
-                              (O.LocalReference T.i32 (AST.Name "b"))
-                              (O.ConstantOperand $ i32Lit 42)
-                              Nothing
-                              align4
-                              defaultInstrMeta
-                   ]
-                   (I.Do -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L417
-
-                      (I.Ret -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Instruction.hs#L24
-
-                         Nothing
-                         defaultInstrMeta)))
-                Nothing
-
-constLetInAST :: ConstLet -> AST.Global
+constLetInAST :: F.ConstLet -> Global
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
+  ConstLet (ConstSymbol "format" String) (StringVal "test %d")
 -}
-constLetInAST constLet    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+constLetInAST (F.ConstLet sym val)    -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
 
  =
-  case constLet of
-    (ConstLet (ConstSymbol s Int) (IntVal v))   -> gen T.i32 (enrich s) $ i32Lit $ toInteger v
-    (ConstLet (ConstSymbol s Real) (RealVal v)) -> gen T.float (enrich s) $ f32Lit v
+  case (sym, val) of
+    ((F.ConstSymbol s F.Int), (F.IntVal v)) -> genGVar False (enrich s) i32 $ i32Lit $ toInteger v
+    ((F.ConstSymbol s F.Real), (F.RealVal v)) -> genGVar False (enrich s) float $ f32Lit v
+    ((F.ConstSymbol s F.String), (F.StringVal v)) -> genGVar True s (strArrayType (length v)) $ strLit
+                                                                                                  v
   where
-    gen t n v = AST.GlobalVariable
-                  (AST.Name n)
-                  L.Internal
-                  V.Default
-                  Nothing
-                  Nothing
-                  defaultAddrSpace
-                  True
-                  True
-                  t
-                  (Just v)
-                  Nothing
-                  Nothing
-                  align4
     enrich = const "const"
 
-constLetListInAST :: [ConstLet] -> [AST.Global]
+constLetListInAST :: [F.ConstLet] -> [Global]
 constLetListInAST = map constLetInAST
 
-staticVarLetInAST :: VarLet -> AST.Global
+genGVar :: Bool -> String -> Type -> Constant -> Global
+genGVar isStr name ty val = GlobalVariable  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+
+                              (Name name)
+                              (if isStr
+                                 then Private
+                                 else Internal)
+                              Default
+                              Nothing
+                              Nothing
+                              defaultAddrSpace
+                              False
+                              False
+                              ty
+                              (Just val)
+                              Nothing
+                              Nothing
+                              (if isStr
+                                 then align1
+                                 else align4)
+
+staticVarLetInAST :: F.VarLet -> Global
 {-|
   VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
   VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5)
 -}
 staticVarLetInAST varLet =
   case varLet of
-    (VarLet (GlobalVarSymbol s Int) (IExpr (ILit v)))  -> gen T.i32 s $ i32Lit $ toInteger v
-    (VarLet (GlobalVarSymbol s Real) (FExpr (FLit v))) -> gen T.float s $ f32Lit v
-  where
-    gen t n v = AST.GlobalVariable  -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L21
+    (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.ILit v))) -> genGVar False s i32 $ i32Lit $ toInteger
+                                                                                                    v
+    (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FLit v))) -> genGVar False s float $ f32Lit v
 
-                  (AST.Name n)
-                  L.Internal
-                  V.Default
-                  Nothing
-                  Nothing
-                  defaultAddrSpace
-                  False
-                  False
-                  t
-                  (Just v)
-                  Nothing
-                  Nothing
-                  align4
-
-staticVarLetListInAST :: [VarLet] -> [AST.Global]
+staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
 
--- FnLet (FnSymbol "name" Nothing) [...] [...]
-fnLetInAST :: FnLet -> AST.Global
-fnLetInAST (FnLet (FnSymbol name _ retType) _ statements) =
+formalArgs :: F.Symbol -> Parameter
+formalArgs (F.VarSymbol name ty) = Parameter (genTy . Just $ ty) (Name name) []
+
+genTy :: (Maybe F.ValueType) -> Type
+genTy ty =
+  case ty of
+    Nothing       -> void
+    Just F.Int    -> i32
+    Just F.Real   -> float
+    Just F.Bool   -> i1
+    Just F.String -> strPointerType
+
+genFn :: Type -> String -> [F.Symbol] -> Bool -> [BasicBlock] -> Global
+genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+
+                                     External
+                                     Default
+                                     Nothing
+                                     C
+                                     []
+                                     ty
+                                     (Name name)
+                                     (map formalArgs args, isVararg)
+                                     [Left $ GroupID 0]
+                                     Nothing
+                                     Nothing
+                                     defaultAlignment
+                                     Nothing
+                                     Nothing
+                                     body
+                                     Nothing
+
+fnLetInAST :: F.FnLet -> Global
+-- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
+fnLetInAST (F.DeclareFnLet (F.FnSymbol name _ retType) args vararg) =
   case retType of
-    Nothing  -> gen T.void name $ makeBody "entry-block" statements
-    Just Int -> gen T.i32 name $ makeBody "entry-block" statements
+    Nothing    -> genFn void name args vararg []
+    Just F.Int -> genFn i32 name args vararg []
+fnLetInAST fnLet = evalState (fnLetInAST' fnLet) initialCodegenState
+
+withSimpleTerminator :: [Named Instruction] -> Codegen BasicBlock
+withSimpleTerminator instrs =
+  do
+    currentId <- currentBlockIdentifier
+    afterId <- nextBlockIdentifier
+    return $ block currentId instrs $ Do $ Br (Name afterId) defaultInstrMeta
+
+joinBlock :: Codegen BasicBlock
+joinBlock =
+  do
+    currentId <- currentBlockIdentifier
+    outerId <- nextOuterBlockIdentifier
+    return $ block currentId [] $ Do $ Br (Name outerId) defaultInstrMeta
+
+fnLetInAST' :: F.FnLet -> Codegen Global
+-- FnLet (FnSymbol "name" Nothing) [args] [stmts]
+fnLetInAST' (F.FnLet (F.FnSymbol name _ retType) args statements) =
+  do
+    argsToRegs <- unzip <$> mapM argToReg args
+    codeArgsToRegs <- return $ fst argsToRegs
+    table <- return $ snd argsToRegs
+    prologueBlock <- withSimpleTerminator (concat codeArgsToRegs)
+    increaseBlockIdentifier
+    entryBlockId <- currentBlockIdentifier
+    bodyBlocks <- stmtsInAST table entryBlockId statements
+    return $ genFn (genTy retType) name args False $ prologueBlock : bodyBlocks
+
+argToReg :: F.Symbol -> Codegen ([Named Instruction], (F.Symbol, Name))
+argToReg symbol =
+  do
+    regNumber <- claimRegisterNumber
+    return $ argToReg' symbol regNumber
+
+argToReg' :: F.Symbol -> Word -> ([Named Instruction], (F.Symbol, Name))
+argToReg' symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, (UnName
+                                                                                          regNumber)))
   where
-    gen t n bs = AST.Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
+    argToRegInstructions sym reg
+      | (F.VarSymbol _ F.String) <- sym = undefined -- we don't support string values
+      | (F.VarSymbol name t) <- sym =
+          let ty = genTy . Just $ t
+          in [ reg := Alloca ty Nothing align4 defaultInstrMeta
+             , Do $ Store
+                      False
+                      (LocalReference ty reg)
+                      (LocalReference ty (Name name))
+                      Nothing
+                      align4
+                      defaultInstrMeta
+             ]
 
-                   L.External
-                   V.Default
-                   Nothing
-                   CC.C
-                   []
-                   t
-                   (AST.Name n)
-                   ([], False)
-                   [Left $ A.GroupID 0]
-                   Nothing
-                   Nothing
-                   defaultAlignment
-                   Nothing
-                   Nothing
-                   bs
-                   Nothing
-
-fnLetListInAST :: [FnLet] -> [AST.Global]
+fnLetListInAST :: [F.FnLet] -> [Global]
 fnLetListInAST = map fnLetInAST
 
--- TODO Move this to the parser
-mainToPseudomain :: FnLet -> FnLet
-mainToPseudomain (FnLet (FnSymbol _ _ ret) args statements) = FnLet
-                                                                (FnSymbol "falsum_main" [] ret)
-                                                                args
-                                                                statements
+programInAST :: F.Program -> [Global]
+programInAST (F.Program constLetList staticVarLetList fnLetList mainLet) = staticVarLetListInAST
+                                                                             staticVarLetList ++
+                                                                           constLetListInAST
+                                                                             constLetList ++
+                                                                           fnLetListInAST fnLetList ++
+                                                                           [fnLetInAST mainLet]
 
--- TODO Move this to the parser
-mainInAST :: FnLet -> [AST.Global]
-mainInAST m = [ fnLetInAST $ mainToPseudomain m
-              , fnLetInAST $ FnLet (FnSymbol "main" [] (Just Int)) []
-                               [ VCall (FnSymbol "falsum_main" [] Nothing) []
-                               , Return (Just (IExpr (ILit 0)))
-                               ]
-              ]
+defaultfunctionAttributes :: Definition
+defaultfunctionAttributes = FunctionAttributes (GroupID 0) [NoUnwind, UWTable]
 
-programInAST :: Program -> [AST.Global]
-programInAST (Program constLetList staticVarLetList fnLetList mainLet) = staticVarLetListInAST
-                                                                           staticVarLetList ++
-                                                                         constLetListInAST
-                                                                           constLetList ++
-                                                                         fnLetListInAST fnLetList ++
-                                                                         mainInAST mainLet
-
-defaultfunctionAttributes :: AST.Definition
-defaultfunctionAttributes = AST.FunctionAttributes (A.GroupID 0) [A.NoUnwind, A.UWTable]
-
-topLevelDefs :: Program -> [AST.Definition]
-topLevelDefs program = [defaultfunctionAttributes] ++ fmap AST.GlobalDefinition
-                                                        (programInAST program)
+topLevelDefs :: F.Program -> [Definition]
+topLevelDefs program = [defaultfunctionAttributes] ++ fmap GlobalDefinition (programInAST program)
 
 {-|
   TODO Set filename as module name
   TODO(optional) Set module DataLayout
   TODO(optional) Set module TargetTriple
 -}
-moduleInAST :: String -> Program -> AST.Module
-moduleInAST filename program = highLevelModule `debug` PP.showPretty highLevelModule
+moduleInAST :: String -> F.Program -> Module
+moduleInAST name program = highLevelModule `debug` showPretty highLevelModule
   where
-    highLevelModule = AST.Module filename Nothing Nothing $ topLevelDefs program
+    highLevelModule = Module name Nothing Nothing $ topLevelDefs program
 
 {-main =
     LLVMCtx.withContext $ \ctx ->
@@ -404,12 +528,12 @@ moduleInAST filename program = highLevelModule `debug` PP.showPretty highLevelMo
 
     where
         file = LLVMMod.File "Rx-linked-cg.bc"-}
-asm :: String -> Program -> IO String
-asm filename program = CTX.withContext $ \ctx ->
-  liftError $ MOD.withModuleFromAST ctx (moduleInAST filename program) MOD.moduleLLVMAssembly
+asm :: String -> F.Program -> IO String
+asm name program = withContext $ \ctx ->
+  liftError $ withModuleFromAST ctx (moduleInAST name program) moduleLLVMAssembly
 
-codegen :: String -> Program -> IO ()
-codegen filename ast = do
+codegen :: String -> F.Program -> IO ()
+codegen name program = do
   --putStrLn $ show problem
-  llvmIR <- asm filename ast
+  llvmIR <- asm name program
   putStrLn llvmIR

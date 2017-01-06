@@ -9,6 +9,7 @@ data TopLevel = TopFnLet FnLet
   deriving (Show, Eq, Ord)
 
 data FnLet = FnLet Symbol [Symbol] [Stmt]
+           | DeclareFnLet Symbol [Symbol] Bool
   deriving (Show, Eq, Ord)
 
 data ConstLet = ConstLet Symbol Value

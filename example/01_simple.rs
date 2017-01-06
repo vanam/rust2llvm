@@ -6,14 +6,18 @@ const ANSWER: i32 = 42;
 
 fn foo (){
     let a: i32 = 21;
+
+    return;
 }
 
 fn main() {
     // Constatnt variable
-    let a: i32 = M;
+    //let a: i32 = M;
 
     // Mutable variable
-    let mut b: i32 = ANSWER;
+    //let mut b: i32 = ANSWER;
 
-    printf("shit %d", a);
+    //printf("shit %d", a);
+
+    return;
 }
