@@ -323,16 +323,23 @@ parseLiteral :: Parser Value
 parseLiteral =
   do
     val <- satisfy isAnyLiteral
+    isSupportedLiteral $ token2Lit val
     return $ lit2Value $ token2Lit val
+
+  where
+    isSupportedLiteral (IntLit _ _) = return ()
+    isSupportedLiteral (FloatLit _ _) = return ()
+    isSupportedLiteral _ = unexpected "Expecting Int or Float Literal"
 
 token2Lit :: Token -> Literal
 token2Lit (Literal x) = x
 
-lit2Value :: Literal -> Value -- TODO parseLiteral has to fail for unsupported literals or we have to
-                              -- limit the lexer (right now lit2Value is non-exhaustive)
+lit2Value :: Literal -> Value
 lit2Value (IntLit _ x) = IntVal $ fromIntegral x
 lit2Value (FloatLit _ (Left x)) = RealVal x
 lit2Value (FloatLit _ (Right x)) = RealVal $ realToFrac x
+lit2Value _ = undefined -- shlould not happend function parseLiteral allready check for supported
+                        -- literals
 
 -- lit2Value (ByteString s) = StringVal s lit2Value (UnicodeString s) = StringVal s
 parseFnLet :: Parser FnLet
