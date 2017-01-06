@@ -355,8 +355,10 @@ fnLetListInAST = map fnLetInAST
 
 -- TODO Move this to the parser
 mainToPseudomain :: FnLet -> FnLet
-mainToPseudomain (FnLet (FnSymbol _ _ ret) args statements) = FnLet (FnSymbol "falsum_main" [] ret) args
-                                                              statements
+mainToPseudomain (FnLet (FnSymbol _ _ ret) args statements) = FnLet
+                                                                (FnSymbol "falsum_main" [] ret)
+                                                                args
+                                                                statements
 
 -- TODO Move this to the parser
 mainInAST :: FnLet -> [AST.Global]
