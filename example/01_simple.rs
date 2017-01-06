@@ -12,10 +12,16 @@ fn foo () -> i32 {
 
 fn main() {
     // Constatnt variable
-    let a: i32 = 5;
+    let a: i32 = M;
 
     // Mutable variable
     let mut b: i32 = ANSWER;
+
+    if (a == b) {
+        a = 5;
+    } else {
+        b = 6;
+    }
 
     foo();
     foo();

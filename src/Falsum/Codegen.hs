@@ -83,6 +83,10 @@ nextBlockIdentifier = get >>= return . evalState (increaseBlockIdentifier >> cur
 nextOuterBlockIdentifier :: State CodegenState String
 nextOuterBlockIdentifier = get >>= return . evalState (removeNamedCounter >> nextBlockIdentifier)
 
+nextInnerBlockIdentifier :: String -> State CodegenState String
+nextInnerBlockIdentifier counterName = get >>= return . evalState
+                                                          (addNamedCounter counterName >> currentBlockIdentifier)
+
 lastUsedRegisterNumber :: State CodegenState Word
 lastUsedRegisterNumber = (subtract 1 . registerNumber) <$> get
 
@@ -178,13 +182,10 @@ generateIExpression (F.INeg expr) =
     instrs <- generateIExpression expr
     resultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
-    bl <- simpleBlock [ reg := Sub
-                                  False
-                                  False
-                                  (ConstantOperand $ i32Lit 0)
-                                  (LocalReference i32 resultReg)
-                                  defaultInstrMeta
-                       ]
+    bl <- simpleBlock
+            [ reg := Sub False False (ConstantOperand $ i32Lit 0) (LocalReference i32 resultReg)
+                       defaultInstrMeta
+            ]
     return $ instrs ++ bl
 generateIExpression (F.IBinary op leftExpr rightExpr) =
   do
@@ -193,7 +194,8 @@ generateIExpression (F.IBinary op leftExpr rightExpr) =
     rightInstrs <- generateIExpression rightExpr
     rightResultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
-    bl <- simpleBlock [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
+    bl <- simpleBlock
+            [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
     return $ leftInstrs ++
              rightInstrs ++
              bl
@@ -215,14 +217,15 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
     instrs <- generateIExpression expr
     resultReg <- UnName <$> lastUsedRegisterNumber
     reg <- UnName <$> claimRegisterNumber
-    bl <- simpleBlock [ reg := Store
-                                  False
-                                  (LocalReference i32 (Name name))
-                                  (LocalReference i32 resultReg)
-                                  Nothing
-                                  align4
-                                  defaultInstrMeta
-                       ]
+    bl <- simpleBlock
+            [ reg := Store
+                       False
+                       (LocalReference i32 (Name name))
+                       (LocalReference i32 resultReg)
+                       Nothing
+                       align4
+                       defaultInstrMeta
+            ]
     return $ instrs ++ bl
 
 genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
@@ -251,9 +254,17 @@ genCall n aTys rTy isVararg argExprs = do
   bl <- simpleBlock call
   return $ instructions ++ bl
 
+generateFExpression :: F.FExpr -> Codegen [BasicBlock]
+generateFExpression _ = return [] -- TODO
+
+generateBExpression :: F.BExpr -> Codegen [BasicBlock]
+generateBExpression _ = simpleBlock []--return [] -- TODO
+
 -- TODO Generate all expressions
 generateExpression :: F.Expr -> Codegen [BasicBlock]
 generateExpression (F.IExpr expr) = generateIExpression expr
+generateExpression (F.FExpr expr) = generateFExpression expr
+generateExpression (F.BExpr expr) = generateBExpression expr
 
 passArg :: F.Expr -> Codegen ([BasicBlock], (Operand, [ParameterAttribute]))
 passArg expr
@@ -270,11 +281,11 @@ passArg expr
     genPassing name ty =
       do
         freeRegister <- claimRegisterNumber
-        bl <- simpleBlock [ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
-                                    defaultInstrMeta
-         ]
-        return
-          (bl, (LocalReference ty (UnName freeRegister), []))
+        bl <- simpleBlock
+                [ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
+                                           defaultInstrMeta
+                ]
+        return (bl, (LocalReference ty (UnName freeRegister), []))
 
 -- TODO Generate all statements
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
@@ -291,10 +302,37 @@ generateStatement stmt
   -- VCall (FnSymbol "foo" Nothing) [args]
   | (F.VCall (F.FnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing False args
   | (F.VCall (F.VariadicFnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing True
-                                                                  args
+                                                                    args
   | (F.Return _) <- stmt = returnBlock -- TODO return values
--- | otherwise = fail $ show stmt
+  | (F.If cond thenBr elseBr) <- stmt =
+      do
+        condBlock <- generateBExpression cond
+        resultReg <- UnName <$> lastUsedRegisterNumber
+        next <- Name <$> nextBlockIdentifier
+        p <- Name <$> nextInnerBlockIdentifier "then"
+        n <- Name <$> nextInnerBlockIdentifier "else"
+        --fail $ show next ++ "|" ++ show p ++ "|" ++ show n
+        branchingBlock <- condBranchBlock (LocalReference i1 resultReg) p
+                            (if elseBr == Nothing
+                               then next
+                               else n)
+        addNamedCounter "then"
+        pBr <- generateStatements thenBr
+        pJoin <- joinBlock
+        removeNamedCounter
+        case elseBr of
+          Nothing -> do
+            increaseBlockIdentifier
+            return $ condBlock ++ branchingBlock ++ pBr ++ [pJoin]
+          Just el -> do
+            addNamedCounter "else"
+            nBr <- generateStatements el
+            nJoin <- joinBlock
+            removeNamedCounter
+            increaseBlockIdentifier
+            return $ condBlock ++ branchingBlock ++ pBr ++ [pJoin] ++ nBr ++ [nJoin]
 
+-- | otherwise = fail $ show stmt
 generateStatements :: [F.Stmt] -> Codegen [BasicBlock]
 generateStatements stmts =
   do
@@ -318,12 +356,11 @@ generateReturnTerminator stmt = error
 
 stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
 stmtsInAST _ _ statements = generateStatements statements
-  {-do
+
+{-do
     stmts <- generateStatements $ init statements
     terminator <- generateReturnTerminator $ last statements
-    -return [block blockName stmts terminator]-}
-
-constLetInAST :: F.ConstLet -> Global
+    -return [block blockName stmts terminator]-}constLetInAST :: F.ConstLet -> Global
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
@@ -434,16 +471,24 @@ withSimpleTerminator instrs =
 
 simpleBlock :: [Named Instruction] -> Codegen [BasicBlock]
 simpleBlock instrs =
-  do bl <- withSimpleTerminator instrs
-     increaseBlockIdentifier
-     return [bl]
+  do
+    bl <- withSimpleTerminator instrs
+    increaseBlockIdentifier
+    return [bl]
 
 -- TODO returning values
 returnBlock :: Codegen [BasicBlock]
 returnBlock =
-  do currentId <- currentBlockIdentifier
-     --increaseBlockIdentifier
-     return $ [block currentId [] $ Do $ Ret Nothing defaultInstrMeta]
+  do
+    currentId <- currentBlockIdentifier
+    --increaseBlockIdentifier
+    return $ [block currentId [] $ Do $ Ret Nothing defaultInstrMeta]
+
+condBranchBlock :: Operand -> Name -> Name -> Codegen [BasicBlock]
+condBranchBlock o thenBr elseBr =
+  do
+    currentId <- currentBlockIdentifier
+    return $ [block currentId [] $ Do $ CondBr o thenBr elseBr defaultInstrMeta]
 
 joinBlock :: Codegen BasicBlock
 joinBlock =
