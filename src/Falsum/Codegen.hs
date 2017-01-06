@@ -375,6 +375,9 @@ staticVarLetListInAST = map staticVarLetInAST
 formalArgs :: F.Symbol -> Parameter
 formalArgs (F.VarSymbol name ty) = Parameter (genTy . Just $ ty) (Name name) []
 
+genParam :: F.ValueType -> Parameter
+genParam ty = Parameter (genTy . Just $ ty) (Name "") []
+
 genTy :: (Maybe F.ValueType) -> Type
 genTy ty =
   case ty of
@@ -384,7 +387,7 @@ genTy ty =
     Just F.Bool   -> i1
     Just F.String -> strPointerType
 
-genFn :: Type -> String -> [F.Symbol] -> Bool -> [BasicBlock] -> Global
+genFn :: Type -> String -> [Parameter] -> Bool -> [BasicBlock] -> Global
 genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-general/blob/llvm-3.8/llvm-general-pure/src/LLVM/General/AST/Global.hs#L48
 
                                      External
@@ -394,7 +397,7 @@ genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-
                                      []
                                      ty
                                      (Name name)
-                                     (map formalArgs args, isVararg)
+                                     (args, isVararg)
                                      [Left $ GroupID 0]
                                      Nothing
                                      Nothing
@@ -406,10 +409,12 @@ genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-
 
 fnLetInAST :: F.FnLet -> Global
 -- DeclareFnLet (FnSymbol "printf" Nothing) [VarSymbol "format" String] vararg
-fnLetInAST (F.DeclareFnLet (F.FnSymbol name _ retType) args vararg) =
-  case retType of
-    Nothing    -> genFn void name args vararg []
-    Just F.Int -> genFn i32 name args vararg []
+fnLetInAST (F.DeclareFnLet symbol)
+  | (F.FnSymbol name argTypes retType) <- symbol =
+      genFn (genTy retType) name (map genParam argTypes) False []
+  | (F.VariadicFnSymbol name argTypes retType) <- symbol =
+      genFn (genTy retType) name (map genParam argTypes) True []
+
 fnLetInAST fnLet = evalState (fnLetInAST' fnLet) initialCodegenState
 
 withSimpleTerminator :: [Named Instruction] -> Codegen BasicBlock
@@ -437,7 +442,7 @@ fnLetInAST' (F.FnLet (F.FnSymbol name _ retType) args statements) =
     increaseBlockIdentifier
     entryBlockId <- currentBlockIdentifier
     bodyBlocks <- stmtsInAST table entryBlockId statements
-    return $ genFn (genTy retType) name args False $ prologueBlock : bodyBlocks
+    return $ genFn (genTy retType) name (map formalArgs args) False $ prologueBlock : bodyBlocks
 
 argToReg :: F.Symbol -> Codegen ([Named Instruction], (F.Symbol, Name))
 argToReg symbol =

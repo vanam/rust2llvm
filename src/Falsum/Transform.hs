@@ -38,9 +38,12 @@ modifyTransform f =
     current <- get
     put $ TransformState (f . declarations $ current)
 
+externalFns :: [FnLet]
+externalFns = [DeclareFnLet (VariadicFnSymbol "printf" [String] Nothing)]
+
 transformProgram :: String -> Program -> Program
 transformProgram rndStr (Program consts vars fns mainFn) =
-  Program (consts ++ (declarations . snd $ tFnsAndDecls)) vars (fst tFnsAndDecls)
+  Program (consts ++ (declarations . snd $ tFnsAndDecls)) vars ((fst tFnsAndDecls) ++ externalFns)
     (lowLevelMain $ newMain rndStr)
   where
     tFnsAndDecls = runState (mapM (transformFn rndStr) (fns ++ [mainFn])) initialTransformState

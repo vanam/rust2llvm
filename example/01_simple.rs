@@ -22,7 +22,7 @@ fn main() {
     let x: i32 = foo();
     foo();
 
-    printf("shit %d", 5);
+    printf("shit %d");//, 5);
 
     return;
 }
