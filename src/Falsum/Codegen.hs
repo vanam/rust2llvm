@@ -448,7 +448,24 @@ generateStatement stmt
   | (F.VCall (F.FnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing False args
   | (F.VCall (F.VariadicFnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing True
                                                                     args
-  | (F.Return _) <- stmt = returnBlock -- TODO return values
+  | (F.Return Nothing) <- stmt = returnBlock undefined void
+  | (F.Return (Just e)) <- stmt =
+      case e of
+        (F.IExpr expr) -> do
+          exprBl <- generateIExpression expr
+          resultReg <- lastUsedRegister
+          ret <- returnBlock resultReg i32
+          return $ exprBl ++ ret
+        (F.FExpr expr) -> do
+          exprBl <- generateFExpression expr
+          resultReg <- lastUsedRegister
+          ret <- returnBlock resultReg float
+          return $ exprBl ++ ret
+        (F.BExpr expr) -> do
+          exprBl <- generateBExpression expr
+          resultReg <- lastUsedRegister
+          ret <- returnBlock resultReg i1
+          return $ exprBl ++ ret
   | (F.If cond thenBr elseBr) <- stmt =
       do
         condBlock <- generateBExpression cond
@@ -624,12 +641,16 @@ simpleBlock instrs =
     return [bl]
 
 -- TODO returning values
-returnBlock :: Codegen [BasicBlock]
-returnBlock =
+returnBlock :: Name -> Type -> Codegen [BasicBlock]
+returnBlock name ty =
   do
     currentId <- currentBlockIdentifier
     --increaseBlockIdentifier
-    return $ [block currentId [] $ Do $ Ret Nothing defaultInstrMeta]
+    return $ [block currentId [] $ Do $ Ret
+                                          (if ty == void
+                                             then Nothing
+                                             else Just (LocalReference ty name))
+                                          defaultInstrMeta]
 
 condBranchBlock :: Operand -> Name -> Name -> Codegen [BasicBlock]
 condBranchBlock o thenBr elseBr =
