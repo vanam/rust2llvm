@@ -1,0 +1,63 @@
+#!/bin/bash
+
+################################################################################
+# VARIABLES                                                                    #
+################################################################################
+
+FILE=""
+OUTPUT_FILE="out"
+
+################################################################################
+# FUNCTIONS                                                                    #
+################################################################################
+
+function help {
+  echo "Falsum compiler"
+  echo "==============="
+  echo "Copyright (c) Falsum, 2017"
+  echo "Program needs 'stack' and 'clang' dependencies to successfully compile programs."
+  echo ""
+  echo "Usage: $1 [OPTIONS] <file>"
+  echo "Available options"
+  echo "    -h                           displays help"
+  echo "    -o <file>                    Write output to <file>"
+}
+
+################################################################################
+# MAIN CODE                                                                    #
+################################################################################
+
+if [ $# -eq 0 ]
+then
+  echo "No arguments supplied"
+  help $0
+  exit 1
+fi
+
+while [ "$1" != "" ]
+do
+  case $1 in
+
+    -o) OUTPUT_FILE=$1
+        shift
+        shift
+        ;;
+
+    -h) help $0
+        exit 0
+        ;;
+
+    *)  FILE=$1
+
+        if [ ! -f "$FILE" ]; then
+          echo "File '$FILE' not found."
+          exit 1
+        fi
+
+        shift
+        ;;
+  esac
+done
+
+# echo "$FILE"
+stack exec falsum < "$FILE" | sed "0,/Codegen:/d" | clang -x ir -o "$OUTPUT_FILE" -
