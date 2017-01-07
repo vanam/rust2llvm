@@ -182,11 +182,17 @@ generateGLit val ty litFn =
                defaultInstrMeta
       ]
 
-generateGVar :: Name -> (Name -> Operand) -> Codegen [BasicBlock]
-generateGVar varName opFn =
+generateGVar :: Name -> Type -> (Name -> Operand) -> Codegen [BasicBlock]
+generateGVar varName ty opFn =
   do
     reg <- claimRegister
-    simpleBlock [reg := Load False (opFn varName) Nothing align4 defaultInstrMeta]
+    newPlace <- claimRegister
+    simpleBlock
+      [ reg := Load False (opFn varName) Nothing align4 defaultInstrMeta
+      , newPlace := Alloca ty Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference ty newPlace) (LocalReference ty reg) Nothing align4
+               defaultInstrMeta
+      ]
 
 generateGNeg :: a -> (a -> Codegen [BasicBlock]) -> (Name -> Operand) -> (Operand -> Instruction) -> Codegen [BasicBlock]
 generateGNeg expr genExpr opFn negFn =
@@ -264,13 +270,13 @@ generateGIf cond ty thenStmts elseStmts =
 -- TODO IIf
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 generateIExpression (F.ILit val) = generateGLit val i32 i32Lit
-generateIExpression (F.IVar (F.VarSymbol name F.Int)) = generateGVar (Name name)
+generateIExpression (F.IVar (F.VarSymbol name F.Int)) = generateGVar (Name name) i32
                                                           (LocalReference i32)
-generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                              i32)
+generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) = generateGVar (Name name) i32 $ ConstantOperand . (GlobalReference
+                                                                                                                  i32)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
-generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                          i32)
+generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = generateGVar (Name name) i32 $ ConstantOperand . (GlobalReference
+                                                                                                              i32)
 generateIExpression (F.INeg expr) = generateGNeg expr generateIExpression (LocalReference i32)
                                       (\o ->
                                          Sub False False (ConstantOperand $ i32Lit 0) o
@@ -303,13 +309,13 @@ generateIExpression (F.IIf cond p n) = generateGIf cond i32 p n
 -- TODO FIf
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
 generateFExpression (F.FLit val) = generateGLit val float floatLit
-generateFExpression (F.FVar (F.VarSymbol name F.Real)) = generateGVar (Name name)
+generateFExpression (F.FVar (F.VarSymbol name F.Real)) = generateGVar (Name name) float
                                                            (LocalReference float)
-generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                               float)
+generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) = generateGVar (Name name) float $ ConstantOperand . (GlobalReference
+                                                                                                                     float)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
-generateFExpression (F.FVar (F.ConstSymbol name F.Real)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                           float)
+generateFExpression (F.FVar (F.ConstSymbol name F.Real)) = generateGVar (Name name) float $ ConstantOperand . (GlobalReference
+                                                                                                                 float)
 generateFExpression (F.FNeg expr) = generateGNeg expr generateFExpression (LocalReference float)
                                       (\o ->
                                          Sub False False (ConstantOperand $ floatLit 0) o
@@ -338,13 +344,13 @@ generateFExpression (F.FIf cond p n) = generateGIf cond float p n
 -- TODO BIf, relation operators (IRBinary, FRBinary)
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
 generateBExpression (F.BLit val) = generateGLit val i1 i1Lit
-generateBExpression (F.BVar (F.VarSymbol name F.Bool)) = generateGVar (Name name)
+generateBExpression (F.BVar (F.VarSymbol name F.Bool)) = generateGVar (Name name) i1
                                                            (LocalReference i1)
-generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                               i1)
+generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) = generateGVar (Name name) i1 $ ConstantOperand . (GlobalReference
+                                                                                                                  i1)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
-generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
-                                                                                                           i1)
+generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) = generateGVar (Name name) i1 $ ConstantOperand . (GlobalReference
+                                                                                                              i1)
 generateBExpression (F.BNot expr) = generateGNeg expr generateBExpression (LocalReference i1)
                                       (\o -> Xor (ConstantOperand $ i1Lit True) o defaultInstrMeta)
 generateBExpression (F.BBinary F.BEq leftExpr rightExpr) =
@@ -441,27 +447,42 @@ genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] ->
 genCall n aTys rTy isVararg argExprs = do
   argsWithInstructions <- mapM passArg argExprs
   instructions <- return $ concatMap fst argsWithInstructions
-  reg <- currentRegister
-  when (rTy /= Nothing) increaseRegisterNumber
-  call <- return
-            [ (if rTy == Nothing
-                 then Do
-                 else (reg :=)) $ Call
-                                    Nothing
-                                    C
-                                    []
-                                    (Right $ ConstantOperand $ GlobalReference
-                                                                 (FunctionType
-                                                                    (genTy rTy)
-                                                                    (map (genTy . Just) aTys)
-                                                                    isVararg)
-                                                                 (Name n))
-                                    (map snd argsWithInstructions)
-                                    [Left $ GroupID 0]
-                                    defaultInstrMeta
-            ]
-  bl <- simpleBlock call
+  cl <- call rTy (map snd argsWithInstructions)
+  bl <- simpleBlock cl
   return $ instructions ++ bl
+
+  where
+    call Nothing instrs =
+      do
+        return [Do $ callInstr instrs]
+    call ty instrs =
+      do
+        reg <- claimRegister
+        newPlace <- claimRegister
+        return
+          [ reg := callInstr instrs
+          , newPlace := Alloca (genTy ty) Nothing align4 defaultInstrMeta
+          , Do $ Store
+                   False
+                   (LocalReference (genTy ty) newPlace)
+                   (LocalReference (genTy ty) reg)
+                   Nothing
+                   align4
+                   defaultInstrMeta
+          ]
+    callInstr instrs = Call
+                         Nothing
+                         C
+                         []
+                         (Right $ ConstantOperand $ GlobalReference
+                                                      (FunctionType
+                                                         (genTy rTy)
+                                                         (map (genTy . Just) aTys)
+                                                         isVararg)
+                                                      (Name n))
+                         instrs
+                         [Left $ GroupID 0]
+                         defaultInstrMeta
 
 generateExpression :: F.Expr -> Codegen [BasicBlock]
 generateExpression (F.IExpr expr) = generateIExpression expr
@@ -514,9 +535,14 @@ generateStatement stmt
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
-  | (F.VCall (F.FnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing False args
-  | (F.VCall (F.VariadicFnSymbol name argTypes _) args) <- stmt = genCall name argTypes Nothing True
-                                                                    args
+  | (F.VCall (F.FnSymbol name argTypes retType) args) <- stmt = genCall name argTypes retType False
+                                                                  args
+  | (F.VCall (F.VariadicFnSymbol name argTypes retType) args) <- stmt = genCall
+                                                                          name
+                                                                          argTypes
+                                                                          retType
+                                                                          True
+                                                                          args
   | (F.Return Nothing) <- stmt = returnBlock undefined void
   | (F.Return (Just e)) <- stmt =
       case e of

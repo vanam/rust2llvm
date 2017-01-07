@@ -25,7 +25,7 @@ fn main() {
 
     foo();
     foo();
-    let x: i32 = foo();
+    let x: i32 = 1 + foo();
     foo();
 
     printf("shit %d");//, a);
