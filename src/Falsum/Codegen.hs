@@ -45,12 +45,6 @@ type Codegen = State CodegenState
 blockIdentifier :: [Either String Word] -> String
 blockIdentifier parts = "_" ++ (intercalate "_" $ map (either id show) $ reverse parts)
 
-{-
-blockCounter :: [Either String Word] -> Maybe Word
-blockCounter [] = Nothing
-blockCounter ((Left _):xs) = blockCounter xs
-blockCounter ((Right x):_) = Just x
--}
 modifyBlockCounter :: (Word -> Word) -> [Either String Word] -> [Either String Word]
 modifyBlockCounter _ [] = []
 modifyBlockCounter f ((Left _):xs) = modifyBlockCounter f xs
@@ -87,17 +81,17 @@ nextInnerBlockIdentifier :: String -> State CodegenState String
 nextInnerBlockIdentifier counterName = get >>= return . evalState
                                                           (addNamedCounter counterName >> currentBlockIdentifier)
 
-lastUsedRegisterNumber :: State CodegenState Word
-lastUsedRegisterNumber = (subtract 1 . registerNumber) <$> get
+lastUsedRegister :: State CodegenState Name
+lastUsedRegister = (UnName . subtract 1 . registerNumber) <$> get
 
-currentRegisterNumber :: State CodegenState Word
-currentRegisterNumber = registerNumber <$> get
+currentRegister :: State CodegenState Name
+currentRegister = (UnName . registerNumber) <$> get
 
 increaseRegisterNumber :: State CodegenState ()
 increaseRegisterNumber = modifyCodegen id (+ 1)
 
-claimRegisterNumber :: State CodegenState Word
-claimRegisterNumber = currentRegisterNumber <* increaseRegisterNumber
+claimRegister :: State CodegenState Name
+claimRegister = currentRegister <* increaseRegisterNumber
 
 type SymbolToRegisterTable = [(F.Symbol, Name)]
 
@@ -158,7 +152,7 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 generateIExpression (F.ILit val) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Alloca i32 Nothing align4 defaultInstrMeta
       , Do $ Store False (LocalReference i32 reg) (ConstantOperand $ i32Lit val) Nothing align4
@@ -166,11 +160,11 @@ generateIExpression (F.ILit val) =
       ]
 generateIExpression (F.IVar (F.VarSymbol name F.Int)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
 generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
@@ -178,7 +172,7 @@ generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
 -- TODO use a const literal instead of a reference, AST has to/should be changed
 generateIExpression (F.IVar (F.ConstSymbol name F.Int)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
                  defaultInstrMeta
@@ -186,8 +180,8 @@ generateIExpression (F.IVar (F.ConstSymbol name F.Int)) =
 generateIExpression (F.INeg expr) =
   do
     instrs <- generateIExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Sub False False (ConstantOperand $ i32Lit 0) (LocalReference i32 resultReg)
                        defaultInstrMeta
@@ -196,10 +190,10 @@ generateIExpression (F.INeg expr) =
 generateIExpression (F.IBinary op leftExpr rightExpr) =
   do
     leftInstrs <- generateIExpression leftExpr
-    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    leftResultReg <- lastUsedRegister
     rightInstrs <- generateIExpression rightExpr
-    rightResultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    rightResultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
     return $ leftInstrs ++
@@ -224,8 +218,8 @@ generateIExpression (F.ICall symbol argExprs) =
 generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
   do
     instrs <- generateIExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Store
                        False
@@ -242,7 +236,7 @@ generateIExpression (F.IIf _ _ _) = simpleBlock [] -- TODO
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
 generateFExpression (F.FLit val) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Alloca float Nothing align4 defaultInstrMeta
       , Do $ Store False (LocalReference float reg) (ConstantOperand $ floatLit val) Nothing align4
@@ -250,12 +244,12 @@ generateFExpression (F.FLit val) =
       ]
 generateFExpression (F.FVar (F.VarSymbol name F.Real)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [reg := Load False (LocalReference float (Name name)) Nothing align4 defaultInstrMeta]
 generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
                  defaultInstrMeta
@@ -263,7 +257,7 @@ generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) =
 -- TODO use a const literal instead of a reference, AST has to/should be changed
 generateFExpression (F.FVar (F.ConstSymbol name F.Real)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
                  defaultInstrMeta
@@ -271,8 +265,8 @@ generateFExpression (F.FVar (F.ConstSymbol name F.Real)) =
 generateFExpression (F.FNeg expr) =
   do
     instrs <- generateFExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Sub False False (ConstantOperand $ floatLit 0) (LocalReference float resultReg)
                        defaultInstrMeta
@@ -281,10 +275,10 @@ generateFExpression (F.FNeg expr) =
 generateFExpression (F.FBinary op leftExpr rightExpr) =
   do
     leftInstrs <- generateFExpression leftExpr
-    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    leftResultReg <- lastUsedRegister
     rightInstrs <- generateFExpression rightExpr
-    rightResultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    rightResultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := opInstr (LocalReference float leftResultReg)
                        (LocalReference float rightResultReg)
@@ -307,8 +301,8 @@ generateFExpression (F.FCall symbol argExprs) =
 generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) =
   do
     instrs <- generateFExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Store
                        False
@@ -325,7 +319,7 @@ generateFExpression (F.FIf _ _ _) = simpleBlock [] -- TODO
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
 generateBExpression (F.BLit val) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Alloca i1 Nothing align4 defaultInstrMeta
       , Do $ Store False (LocalReference i1 reg) (ConstantOperand $ i1Lit val) Nothing align4
@@ -333,11 +327,11 @@ generateBExpression (F.BLit val) =
       ]
 generateBExpression (F.BVar (F.VarSymbol name F.Bool)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock [reg := Load False (LocalReference i1 (Name name)) Nothing align4 defaultInstrMeta]
 generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
                  defaultInstrMeta
@@ -345,7 +339,7 @@ generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) =
 -- TODO use a const literal instead of a reference, AST has to/should be changed
 generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) =
   do
-    reg <- UnName <$> claimRegisterNumber
+    reg <- claimRegister
     simpleBlock
       [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
                  defaultInstrMeta
@@ -353,8 +347,8 @@ generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) =
 generateBExpression (F.BNot expr) =
   do
     instrs <- generateBExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 resultReg)
                        defaultInstrMeta
@@ -363,17 +357,17 @@ generateBExpression (F.BNot expr) =
 generateBExpression (F.BBinary op leftExpr rightExpr) =
   do
     leftInstrs <- generateBExpression leftExpr
-    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    leftResultReg <- lastUsedRegister
     rightInstrs <- generateBExpression rightExpr
-    rightResultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    rightResultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- if op /= F.BEq
             then simpleBlock
                    [ reg := opInstr (LocalReference i1 leftResultReg)
                               (LocalReference i1 rightResultReg)
                    ]
             else do
-              regNeg <- UnName <$> claimRegisterNumber
+              regNeg <- claimRegister
               simpleBlock
                 [ reg := Xor (LocalReference i1 leftResultReg) (LocalReference i1 rightResultReg)
                            defaultInstrMeta
@@ -399,8 +393,8 @@ generateBExpression (F.BCall symbol argExprs) =
 generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) =
   do
     instrs <- generateBExpression expr
-    resultReg <- UnName <$> lastUsedRegisterNumber
-    reg <- UnName <$> claimRegisterNumber
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
     bl <- simpleBlock
             [ reg := Store
                        False
@@ -417,7 +411,7 @@ genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] ->
 genCall n aTys rTy isVararg argExprs = do
   argsWithInstructions <- mapM passArg argExprs
   instructions <- return $ concatMap fst argsWithInstructions
-  reg <- UnName <$> currentRegisterNumber
+  reg <- currentRegister
   when (rTy /= Nothing) increaseRegisterNumber
   call <- return
             [ (if rTy == Nothing
@@ -458,12 +452,12 @@ passArg expr
   where
     genPassing name ty =
       do
-        freeRegister <- claimRegisterNumber
+        freeRegister <- claimRegister
         bl <- simpleBlock
-                [ UnName freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
-                                           defaultInstrMeta
+                [ freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
+                                    defaultInstrMeta
                 ]
-        return (bl, (LocalReference ty (UnName freeRegister), []))
+        return (bl, (LocalReference ty freeRegister, []))
 
 -- TODO Generate all statements
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
@@ -485,7 +479,7 @@ generateStatement stmt
   | (F.If cond thenBr elseBr) <- stmt =
       do
         condBlock <- generateBExpression cond
-        resultReg <- UnName <$> lastUsedRegisterNumber
+        resultReg <- lastUsedRegister
         next <- Name <$> nextBlockIdentifier
         p <- Name <$> nextInnerBlockIdentifier "then"
         n <- Name <$> nextInnerBlockIdentifier "else"
@@ -693,26 +687,20 @@ fnLetInAST' (F.FnLet (F.FnSymbol name _ retType) args statements) =
 argToReg :: F.Symbol -> Codegen ([Named Instruction], (F.Symbol, Name))
 argToReg symbol =
   do
-    regNumber <- claimRegisterNumber
-    return $ argToReg' symbol regNumber
+    reg <- claimRegister
+    case symbol of
+      (F.VarSymbol _ F.String) -> fail "Strings are not supported." -- we don't support string values
+      _                        -> return $ argToReg' symbol reg
 
-argToReg' :: F.Symbol -> Word -> ([Named Instruction], (F.Symbol, Name))
-argToReg' symbol regNumber = (argToRegInstructions symbol (UnName regNumber), (symbol, (UnName
-                                                                                          regNumber)))
+argToReg' :: F.Symbol -> Name -> ([Named Instruction], (F.Symbol, Name))
+argToReg' symbol reg = (argToRegInstructions symbol reg, (symbol, reg))
   where
-    argToRegInstructions sym reg
-      | (F.VarSymbol _ F.String) <- sym = undefined -- we don't support string values
-      | (F.VarSymbol name t) <- sym =
-          let ty = genTy . Just $ t
-          in [ reg := Alloca ty Nothing align4 defaultInstrMeta
-             , Do $ Store
-                      False
-                      (LocalReference ty reg)
-                      (LocalReference ty (Name name))
-                      Nothing
-                      align4
-                      defaultInstrMeta
-             ]
+    argToRegInstructions (F.VarSymbol name t) r =
+      let ty = genTy . Just $ t
+      in [ reg := Alloca ty Nothing align4 defaultInstrMeta
+         , Do $ Store False (LocalReference ty r) (LocalReference ty (Name name)) Nothing align4
+                  defaultInstrMeta
+         ]
 
 fnLetListInAST :: [F.FnLet] -> [Global]
 fnLetListInAST = map fnLetInAST
