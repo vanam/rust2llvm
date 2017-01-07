@@ -25,10 +25,10 @@ fn main() {
 
     foo();
     foo();
-    let x: i32 = 1 + foo();
+    let x: i32 = foo();
     foo();
 
-    printf("shit %d");//, a);
+    printf("shit %d", a);
 
     return;
 }
