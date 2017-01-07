@@ -219,9 +219,12 @@ generateGAssign varName opFn expr genExpr =
   do
     instrs <- genExpr expr
     resultReg <- lastUsedRegister
+    tmp <- claimRegister
     reg <- claimRegister
     bl <- simpleBlock
-            [reg := Store False (opFn varName) (opFn resultReg) Nothing align4 defaultInstrMeta]
+            [ tmp := Load False (opFn resultReg) Nothing align4 defaultInstrMeta
+            , reg := Store False (opFn varName) (opFn tmp) Nothing align4 defaultInstrMeta
+            ]
     return $ instrs ++ bl
 
 generateGIf :: F.BExpr -> Type -> [F.Stmt] -> [F.Stmt] -> Codegen [BasicBlock]
