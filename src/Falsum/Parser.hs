@@ -357,6 +357,7 @@ parseFnLet =
     modifyState addNewScope
     addParamsToScope fnParams
     fnBlock <- parseBlock
+    checkBlockType fnReturnType fnBlock
     modifyState removeCurrentScope
     putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
     return $ FnLet (FnSymbol fnName (map getType fnParams) fnReturnType) fnParams fnBlock
@@ -364,6 +365,32 @@ parseFnLet =
   where
     addParamsToScope = mapM_ (modifyState . addSymbolToScope)
     getType (VarSymbol _ valType) = valType
+
+    checkBlockType :: Maybe ValueType -> [Stmt] -> Parser ()
+    checkBlockType Nothing _ = return ()
+    checkBlockType (Just blockType) statements = do
+      lastStatement <- getLastStmt statements
+      checkStatementType blockType lastStatement
+
+    checkExprType :: ValueType -> Expr -> Parser ()
+    checkExprType Int (IExpr _) = return ()
+    checkExprType Real (FExpr _) = return ()
+    checkExprType Bool (BExpr _) = return ()
+    checkExprType _ _ = unexpected "Expected type does not match"
+
+    getLastStmt [] = unexpected "Missing return or implicit return expression"
+    getLastStmt statements = pure $ last statements
+
+    checkStatementType :: ValueType -> Stmt -> Parser ()
+    checkStatementType t (Expr expr) = checkExprType t expr
+    checkStatementType expectedType (Falsum.AST.Return (Just expr)) = checkExprType expectedType
+                                                                        expr
+    checkStatementType expectedType (Falsum.AST.If _ branch1 (Just branch2)) = do
+      lastStatementBranch1 <- getLastStmt branch1
+      lastStatementBranch2 <- getLastStmt branch2
+      checkStatementType expectedType lastStatementBranch1
+      checkStatementType expectedType lastStatementBranch2
+    checkStatementType _ _ = return () -- other statements will not be checked
 
 parseArg :: Parser Symbol
 parseArg =
