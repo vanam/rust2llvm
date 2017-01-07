@@ -5,8 +5,6 @@ import           Data.Char
 import           Data.Word
 --import           Debug.Trace
 import qualified Falsum.AST                              as F
-{-import           Falsum.Lexer                       (backwardLookup,
-                                                     forwardLookup)-}
 import           LLVM.General.AST                        hiding (GetElementPtr)
 import           LLVM.General.AST.AddrSpace
 import           LLVM.General.AST.Attribute
@@ -36,11 +34,12 @@ data CodegenState =
        CodegenState
          { blockIdentifierParts :: [Either String Word]
          , registerNumber       :: Word
+         , symbolsToRegisters   :: SymbolToRegisterTable
          }
   deriving Show
 
 initialCodegenState :: CodegenState
-initialCodegenState = CodegenState [Right 1] 1
+initialCodegenState = CodegenState [Right 1] 1 []
 
 type Codegen = State CodegenState
 
@@ -55,23 +54,24 @@ modifyBlockCounter f ((Right x):xs) = (Right $ f x) : xs
 addNamedCounter' :: String -> [Either String Word] -> [Either String Word]
 addNamedCounter' name parts = Right 1 : Left name : parts
 
-modifyCodegen :: ([Either String Word] -> [Either String Word]) -> (Word -> Word) -> State CodegenState ()
-modifyCodegen a b =
+modifyCodegen :: ([Either String Word] -> [Either String Word]) -> (Word -> Word) -> (SymbolToRegisterTable -> SymbolToRegisterTable) -> State CodegenState ()
+modifyCodegen a b c =
   do
     current <- get
     put $ CodegenState (a . blockIdentifierParts $ current) (b . registerNumber $ current)
+            (c . symbolsToRegisters $ current)
 
 addNamedCounter :: String -> State CodegenState ()
-addNamedCounter name = modifyCodegen (addNamedCounter' name) id
+addNamedCounter name = modifyCodegen (addNamedCounter' name) id id
 
 removeNamedCounter :: State CodegenState ()
-removeNamedCounter = modifyCodegen (modifyBlockCounter id . tail) id
+removeNamedCounter = modifyCodegen (modifyBlockCounter id . tail) id id
 
 currentBlockIdentifier :: State CodegenState String
 currentBlockIdentifier = blockIdentifier . blockIdentifierParts <$> get
 
 increaseBlockIdentifier :: State CodegenState ()
-increaseBlockIdentifier = modifyCodegen (modifyBlockCounter (+ 1)) id
+increaseBlockIdentifier = modifyCodegen (modifyBlockCounter (+ 1)) id id
 
 nextBlockIdentifier :: State CodegenState Name
 nextBlockIdentifier = get >>= return .
@@ -94,10 +94,30 @@ currentRegister :: State CodegenState Name
 currentRegister = (UnName . registerNumber) <$> get
 
 increaseRegisterNumber :: State CodegenState ()
-increaseRegisterNumber = modifyCodegen id (+ 1)
+increaseRegisterNumber = modifyCodegen id (+ 1) id
 
 claimRegister :: State CodegenState Name
 claimRegister = currentRegister <* increaseRegisterNumber
+
+modifyTable :: (SymbolToRegisterTable -> SymbolToRegisterTable) -> State CodegenState ()
+modifyTable f = modifyCodegen id id f
+
+forwardLookup :: Eq a => [(a, b)] -> a -> Maybe b
+forwardLookup table = flip lookup table
+
+substituteArg :: F.Symbol -> State CodegenState Name
+substituteArg sym =
+  case sym of
+    F.GlobalVarSymbol name _ -> return $ Name name
+    F.FnSymbol name _ _ -> return $ Name name
+    F.VariadicFnSymbol name _ _ -> return $ Name name
+    F.ConstSymbol name _ -> return $ Name name
+    F.VarSymbol name _ -> do
+      table <- symbolsToRegisters <$> get
+      subst <- return $ forwardLookup table sym
+      case subst of
+        Nothing  -> return $ Name name
+        Just reg -> return reg
 
 type SymbolToRegisterTable = [(F.Symbol, Name)]
 
@@ -157,17 +177,14 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
 generateGAlloca :: Name -> Type -> Codegen ([BasicBlock], Name)
 generateGAlloca var ty =
   do
-    --reg <- claimRegister
     bl <- simpleBlock [var := Alloca ty Nothing align4 defaultInstrMeta]
     return $ (bl, var)
 
 generateGSet :: Name -> Name -> Type -> Codegen [BasicBlock]
 generateGSet var regFrom ty =
   do
-    --reg <- claimRegister
     simpleBlock
-      [-- reg := Load False (LocalReference ty regFrom) Nothing align4 defaultInstrMeta,
-      Do $ Store False (LocalReference ty var) (LocalReference ty regFrom) Nothing align4
+      [ Do $ Store False (LocalReference ty var) (LocalReference ty regFrom) Nothing align4
                defaultInstrMeta
       ]
 
@@ -175,25 +192,22 @@ generateGLit :: a -> Type -> (a -> Constant) -> Codegen [BasicBlock]
 generateGLit val ty litFn =
   do
     reg <- claimRegister
-    simpleBlock
-      [ reg := set ty (ConstantOperand $ litFn val)]
-  where neutral t
-            | t == i1 = ConstantOperand $ i1Lit False
-            | t == i32 = ConstantOperand $ i32Lit 0
-            | t == float = ConstantOperand $ floatLit 0
-        set t = if t == float then (\ s -> FAdd NoFastMathFlags s (neutral t) defaultInstrMeta) else (\ s -> Add False False s (neutral t) defaultInstrMeta)
+    simpleBlock [reg := set ty (ConstantOperand $ litFn val)]
+
+  where
+    neutral t
+      | t == i1 = ConstantOperand $ i1Lit False
+      | t == i32 = ConstantOperand $ i32Lit 0
+      | t == float = ConstantOperand $ floatLit 0
+    set t = if t == float
+              then (\s -> FAdd NoFastMathFlags s (neutral t) defaultInstrMeta)
+              else (\s -> Add False False s (neutral t) defaultInstrMeta)
 
 generateGVar :: Name -> Type -> (Name -> Operand) -> Codegen [BasicBlock]
 generateGVar varName _ opFn =
   do
     reg <- claimRegister
-    --newPlace <- claimRegister
-    simpleBlock
-      [ reg := Load False (opFn varName) Nothing align4 defaultInstrMeta
-      --, newPlace := Alloca ty Nothing align4 defaultInstrMeta
-      --, Do $ Store False (LocalReference ty newPlace) (LocalReference ty reg) Nothing align4
-      --         defaultInstrMeta
-      ]
+    simpleBlock [reg := Load False (opFn varName) Nothing align4 defaultInstrMeta]
 
 generateGNeg :: a -> (a -> Codegen [BasicBlock]) -> (Name -> Operand) -> (Operand -> Instruction) -> Codegen [BasicBlock]
 generateGNeg expr genExpr opFn negFn =
@@ -228,12 +242,9 @@ generateGAssign varName opFn expr genExpr =
   do
     instrs <- genExpr expr
     resultReg <- lastUsedRegister
-    --tmp <- claimRegister
     reg <- claimRegister
     bl <- simpleBlock
-            [-- tmp := Load False (opFn resultReg) Nothing align4 defaultInstrMeta,
-              reg := Store False (opFn varName) (opFn resultReg) Nothing align4 defaultInstrMeta
-            ]
+            [reg := Store False (opFn varName) (opFn resultReg) Nothing align4 defaultInstrMeta]
     return $ instrs ++ bl
 
 generateGIf :: F.BExpr -> Type -> [F.Stmt] -> [F.Stmt] -> Codegen [BasicBlock]
@@ -260,8 +271,11 @@ generateGIf cond ty thenStmts elseStmts =
     removeNamedCounter
     increaseBlockIdentifier
     resultToReg <- do
-      reg <- claimRegister
-      simpleBlock [reg := Load False (LocalReference ty (snd allocBlock)) Nothing align4 defaultInstrMeta]
+                     reg <- claimRegister
+                     simpleBlock
+                       [ reg := Load False (LocalReference ty (snd allocBlock)) Nothing align4
+                                  defaultInstrMeta
+                       ]
     return $ condBlock ++
              fst allocBlock ++
              branchingBlock ++
@@ -333,10 +347,10 @@ generateFExpression (F.FBinary op leftExpr rightExpr) = generateGBinary
   where
     opInstr l r =
       case op of
-        F.FPlus  -> Add False False l r defaultInstrMeta
-        F.FMinus -> Sub False False l r defaultInstrMeta
-        F.FMult  -> Mul False False l r defaultInstrMeta
-        F.FDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
+        F.FPlus  -> FAdd NoFastMathFlags l r defaultInstrMeta
+        F.FMinus -> FSub NoFastMathFlags l r defaultInstrMeta
+        F.FMult  -> FMul NoFastMathFlags l r defaultInstrMeta
+        F.FDiv   -> FDiv NoFastMathFlags l r defaultInstrMeta -- TODO is it right?
 generateFExpression (F.FCall symbol argExprs) = generateGCall symbol argExprs
 generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) = generateGAssign
                                                                               (Name name)
@@ -461,18 +475,7 @@ genCall n aTys rTy isVararg argExprs = do
     call _ instrs =
       do
         reg <- claimRegister
-        --newPlace <- claimRegister
-        return
-          [ reg := callInstr instrs
-          --, newPlace := Alloca (genTy ty) Nothing align4 defaultInstrMeta
-          {-, Do $ Store
-                   False
-                   (LocalReference (genTy ty) newPlace)
-                   (LocalReference (genTy ty) reg)
-                   Nothing
-                   align4
-                   defaultInstrMeta-}
-          ]
+        return [reg := callInstr instrs]
     callInstr instrs = Call
                          Nothing
                          C
@@ -523,20 +526,20 @@ generateStatement stmt
         bl <- simpleBlock [allocInstr]
         initInstrs <- generateExpression expr
         return $ bl ++ initInstrs
-  | (F.ConstLetStmt (F.ConstLet (F.ConstSymbol name fType) value)) <- stmt =
+  | (F.ConstLetStmt (F.ConstLet (F.ConstSymbol name fType) val)) <- stmt =
       do
         let ty = genTy . Just $ fType
         allocInstr <- return (Name name := Alloca ty Nothing align4 defaultInstrMeta)
         bl <- simpleBlock [allocInstr]
-        case value of
-          (F.IntVal val) -> do
-            initInstrs <- generateExpression (F.IExpr (F.ILit $ toInteger val))
+        case val of
+          (F.IntVal v) -> do
+            initInstrs <- generateExpression (F.IExpr (F.ILit $ toInteger v))
             return $ bl ++ initInstrs
-          (F.RealVal val) -> do
-            initInstrs <- generateExpression (F.FExpr (F.FLit val))
+          (F.RealVal v) -> do
+            initInstrs <- generateExpression (F.FExpr (F.FLit v))
             return $ bl ++ initInstrs
-          (F.BoolVal val) -> do
-            initInstrs <- generateExpression (F.BExpr (F.BLit val))
+          (F.BoolVal v) -> do
+            initInstrs <- generateExpression (F.BExpr (F.BLit v))
             return $ bl ++ initInstrs
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
@@ -632,8 +635,10 @@ generateStatements stmts =
 genTerm :: Maybe Operand -> Named Terminator
 genTerm o = Do $ Ret o defaultInstrMeta
 
-stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
-stmtsInAST _ _ statements = generateStatements statements
+stmtsInAST :: SymbolToRegisterTable -> [F.Stmt] -> Codegen [BasicBlock]
+stmtsInAST table statements = do
+  modifyTable $ const table
+  generateStatements statements
 
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
@@ -792,8 +797,7 @@ fnLetInAST' (F.FnLet (F.FnSymbol name _ retType) args statements) =
     table <- return $ snd argsToRegs
     prologueBlock <- withSimpleTerminator (concat codeArgsToRegs)
     increaseBlockIdentifier
-    entryBlockId <- currentBlockIdentifier
-    bodyBlocks <- stmtsInAST table entryBlockId statements
+    bodyBlocks <- stmtsInAST table statements
     return $ genFn (genTy retType) name (map formalArgs args) False $ prologueBlock : bodyBlocks
 
 argToReg :: F.Symbol -> Codegen ([Named Instruction], (F.Symbol, Name))
