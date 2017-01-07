@@ -516,24 +516,28 @@ passArg expr
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement stmt
-  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Int) expr)) <- stmt =
+  | (F.VarLetStmt (F.VarLet (F.VarSymbol name fType) expr)) <- stmt =
       do
-        allocInstr <- return (Name name := Alloca i32 Nothing align4 defaultInstrMeta)
+        let ty = genTy . Just $ fType
+        allocInstr <- return (Name name := Alloca ty Nothing align4 defaultInstrMeta)
         bl <- simpleBlock [allocInstr]
         initInstrs <- generateExpression expr
         return $ bl ++ initInstrs
-  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Real) expr)) <- stmt =
+  | (F.ConstLetStmt (F.ConstLet (F.ConstSymbol name fType) value)) <- stmt =
       do
-        allocInstr <- return (Name name := Alloca float Nothing align4 defaultInstrMeta)
+        let ty = genTy . Just $ fType
+        allocInstr <- return (Name name := Alloca ty Nothing align4 defaultInstrMeta)
         bl <- simpleBlock [allocInstr]
-        initInstrs <- generateExpression expr
-        return $ bl ++ initInstrs
-  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Bool) expr)) <- stmt =
-      do
-        allocInstr <- return (Name name := Alloca i1 Nothing align4 defaultInstrMeta)
-        bl <- simpleBlock [allocInstr]
-        initInstrs <- generateExpression expr
-        return $ bl ++ initInstrs
+        case value of
+          (F.IntVal val) -> do
+            initInstrs <- generateExpression (F.IExpr (F.ILit $ toInteger val))
+            return $ bl ++ initInstrs
+          (F.RealVal val) -> do
+            initInstrs <- generateExpression (F.FExpr (F.FLit val))
+            return $ bl ++ initInstrs
+          (F.BoolVal val) -> do
+            initInstrs <- generateExpression (F.BExpr (F.BLit val))
+            return $ bl ++ initInstrs
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
