@@ -236,6 +236,7 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
                        defaultInstrMeta
             ]
     return $ instrs ++ bl
+generateIExpression (F.IIf _ _ _) = simpleBlock [] -- TODO
 
 -- TODO FIf
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
@@ -318,6 +319,7 @@ generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) =
                        defaultInstrMeta
             ]
     return $ instrs ++ bl
+generateFExpression (F.FIf _ _ _) = simpleBlock [] -- TODO
 
 -- TODO BIf, relation operators (IRBinary, FRBinary)
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
@@ -409,6 +411,7 @@ generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) =
                        defaultInstrMeta
             ]
     return $ instrs ++ bl
+generateBExpression (F.BIf _ _ _) = simpleBlock [] -- TODO
 
 genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
 genCall n aTys rTy isVararg argExprs = do
