@@ -47,7 +47,7 @@ data BExpr = BLit Bool
            | BVar Symbol
            | BCall Symbol [Expr]
            | BAssign LValue BExpr
-  -- | BIf BExpr [Stmt] [Stmt]
+           | BIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data IExpr = ILit Integer
@@ -65,7 +65,7 @@ data FExpr = FLit Float
            | FBinary FOp FExpr FExpr
            | FCall Symbol [Expr]
            | FAssign LValue FExpr
-  -- | FIf BExpr [Stmt] [Stmt]
+           | FIf BExpr [Stmt] [Stmt]
   deriving (Show, Eq, Ord)
 
 data BOp = BAnd
