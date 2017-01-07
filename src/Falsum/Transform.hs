@@ -78,7 +78,15 @@ transformStmt rndStr stmt =
       return $ VCall (transformSymbol rndStr sym) tArgs
     anything -> return anything
 
+transformReturn :: Maybe ValueType -> [Stmt] -> [Stmt]
+transformReturn Nothing stmts = stmts ++ [Return Nothing]
+transformReturn _ [Expr expr] = [Return $ Just expr]
+transformReturn _ stmt@[Return _] = stmt
+transformReturn ty (stmt:stmts) = stmt : transformReturn ty stmts
+transformReturn _ _ = undefined
+
 transformFn :: String -> FnLet -> Transform FnLet
-transformFn rndStr (FnLet sym args body) = do
+transformFn rndStr (FnLet sym@(FnSymbol _ _ ty) args body) = do
   tBody <- mapM (transformStmt rndStr) body
-  return $ FnLet (transformSymbol rndStr sym) (map (transformSymbol rndStr) args) tBody
+  tBodyRet <- return $ transformReturn ty tBody
+  return $ FnLet (transformSymbol rndStr sym) (map (transformSymbol rndStr) args) tBodyRet

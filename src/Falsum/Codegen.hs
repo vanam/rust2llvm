@@ -246,13 +246,13 @@ generateGIf cond ty thenStmts elseStmts =
     branchingBlock <- condBranchBlock (LocalReference i1 resultReg) p n
     addNamedCounter "then"
     pBr <- generateStatements thenStmts
-    pResult <- currentRegister
+    pResult <- lastUsedRegister
     pSet <- generateGSet (snd allocBlock) pResult ty
     pJoin <- joinBlock
     removeNamedCounter
     addNamedCounter "else"
     nBr <- generateStatements elseStmts
-    nResult <- currentRegister
+    nResult <- lastUsedRegister
     nSet <- generateGSet (snd allocBlock) nResult ty
     nJoin <- joinBlock
     removeNamedCounter
