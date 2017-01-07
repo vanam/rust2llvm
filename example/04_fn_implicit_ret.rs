@@ -25,7 +25,7 @@ fn f3 () -> i32 {
 fn f3 () -> i32 {
 
     while true {
-        return -4.2;
+        return 4;
     }
     return 3; //ok
 }
