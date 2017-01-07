@@ -267,7 +267,6 @@ generateGIf cond ty thenStmts elseStmts =
              nSet ++
              [nJoin]
 
--- TODO IIf
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 generateIExpression (F.ILit val) = generateGLit val i32 i32Lit
 generateIExpression (F.IVar (F.VarSymbol name F.Int)) = generateGVar (Name name) i32
@@ -306,7 +305,6 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) = gener
                                                                              generateIExpression
 generateIExpression (F.IIf cond p n) = generateGIf cond i32 p n
 
--- TODO FIf
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
 generateFExpression (F.FLit val) = generateGLit val float floatLit
 generateFExpression (F.FVar (F.VarSymbol name F.Real)) = generateGVar (Name name) float
@@ -341,7 +339,6 @@ generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) = gene
                                                                               generateFExpression
 generateFExpression (F.FIf cond p n) = generateGIf cond float p n
 
--- TODO BIf, relation operators (IRBinary, FRBinary)
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
 generateBExpression (F.BLit val) = generateGLit val i1 i1Lit
 generateBExpression (F.BVar (F.VarSymbol name F.Bool)) = generateGVar (Name name) i1
@@ -494,7 +491,6 @@ passArg expr
   | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr = genPassing name i32
   | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
   | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr = genPassing name i1
-  -- SExpr (VarSymbol "format" String)
   | (F.SExpr (F.ConstSymbol name F.String)) <- expr =
       return
         ([], (ConstantOperand
@@ -510,7 +506,7 @@ passArg expr
                 ]
         return (bl, (LocalReference ty freeRegister, []))
 
--- TODO Generate all statements
+-- TODO ConstLetStmt
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
 -- (VarLet (VarSymbol "b" Int) (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateStatement stmt
@@ -626,25 +622,9 @@ generateStatements stmts =
 genTerm :: Maybe Operand -> Named Terminator
 genTerm o = Do $ Ret o defaultInstrMeta
 
--- TODO
-generateReturnTerminator :: F.Stmt -> Codegen (Named Terminator)
-generateReturnTerminator (F.Return e) = return . genTerm . fmap conv $ e
-  where
-    conv (F.IExpr (F.ILit l)) = ConstantOperand $ i32Lit l
-    conv _ = undefined -- TODO
-
-generateReturnTerminator stmt = error
-                                  ("'generateReturnTerminator' accepts only Return statements, '" ++
-                                   show stmt ++
-                                   "' given.")
-
 stmtsInAST :: SymbolToRegisterTable -> String -> [F.Stmt] -> Codegen [BasicBlock]
 stmtsInAST _ _ statements = generateStatements statements
 
-{-do
-    stmts <- generateStatements $ init statements
-    terminator <- generateReturnTerminator $ last statements
-    -return [block blockName stmts terminator]-}
 {-|
   ConstLet (ConstSymbol "ANSWER" Int) (IntVal 42)
   ConstLet (ConstSymbol "ANSWERE" Real) (RealVal 420)
@@ -691,7 +671,6 @@ staticVarLetInAST :: F.VarLet -> Global
   VarLet (GlobalVarSymbol "M" Int) (IExpr (ILit 5))
   VarLet (GlobalVarSymbol "Moo" Real) (FExpr (FLit 55.5)
 -}
--- TODO bool
 staticVarLetInAST varLet =
   case varLet of
     (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.IAssign _ (F.ILit v)))) -> genGVar False s i32 $ i32Lit $ toInteger
@@ -699,6 +678,8 @@ staticVarLetInAST varLet =
     (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FAssign _ (F.FLit v)))) -> genGVar False s
                                                                                     float $ floatLit
                                                                                               v
+    (F.VarLet (F.GlobalVarSymbol s F.Bool) (F.BExpr (F.BAssign _ (F.BLit v)))) -> genGVar False s
+                                                                                    i1 $ i1Lit v
 
 staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
@@ -762,7 +743,6 @@ simpleBlock instrs =
     increaseBlockIdentifier
     return [bl]
 
--- TODO returning values
 returnBlock :: Name -> Type -> Codegen [BasicBlock]
 returnBlock name ty =
   do
@@ -841,8 +821,7 @@ defaultfunctionAttributes = FunctionAttributes (GroupID 0) [NoUnwind, UWTable]
 topLevelDefs :: F.Program -> [Definition]
 topLevelDefs program = [defaultfunctionAttributes] ++ fmap GlobalDefinition (programInAST program)
 
-{-|
-  TODO Set filename as module name
+{-
   TODO(optional) Set module DataLayout
   TODO(optional) Set module TargetTriple
 -}
@@ -851,16 +830,6 @@ moduleInAST name program = highLevelModule `debug` showPretty highLevelModule
   where
     highLevelModule = Module name Nothing Nothing $ topLevelDefs program
 
-{-main =
-    LLVMCtx.withContext $ \ctx ->
-        liftError $ LLVMMod.withModuleFromBitcode ctx file $ \mod -> do
-            ast <- LLVMMod.moduleAST mod
-            putStrLn $ LLVMPP.showPretty ast
-            liftError $ LLVMMod.withModuleFromAST ctx ast$ \mod -> do
-                putStrLn "Success!"
-
-    where
-        file = LLVMMod.File "Rx-linked-cg.bc"-}
 asm :: String -> F.Program -> IO String
 asm name program = withContext $ \ctx ->
   liftError $ withModuleFromAST ctx (moduleInAST name program) moduleLLVMAssembly
