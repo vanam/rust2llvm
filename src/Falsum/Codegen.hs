@@ -4,28 +4,30 @@ module Falsum.Codegen where
 import           Data.Char
 import           Data.Word
 --import           Debug.Trace
-import qualified Falsum.AST                         as F
+import qualified Falsum.AST                              as F
 {-import           Falsum.Lexer                       (backwardLookup,
                                                      forwardLookup)-}
-import           LLVM.General.AST                   hiding (GetElementPtr)
+import           LLVM.General.AST                        hiding (GetElementPtr)
 import           LLVM.General.AST.AddrSpace
 import           LLVM.General.AST.Attribute
 import           LLVM.General.AST.CallingConvention
+import qualified LLVM.General.AST.FloatingPointPredicate as FP
+import qualified LLVM.General.AST.IntegerPredicate       as IP
 --import  LLVM.General.AST.Instruction hiding (GetElementPtr)
 import           LLVM.General.AST.Linkage
 -- import LLVM.General.AST.Name import LLVM.General.AST.Operand
 import           LLVM.General.AST.Type
 import           LLVM.General.AST.Visibility
 -- import LLVM.General.AST.DLL as DLL import qualified LLVM.General.AST.ThreadLocalStorage as TLS
-import           LLVM.General.AST.Constant          (Constant (Array, Float, GetElementPtr, GlobalReference, Int))
+import           LLVM.General.AST.Constant               (Constant (Array, Float, GetElementPtr, GlobalReference, Int))
 -- TODO for constant expressions instructions import qualified LLVM.General.AST.Constant as C
 import           LLVM.General.AST.Float
 --import qualified LLVM.General.AST.FloatingPointPredicate as FP
 import           LLVM.General.Context
-import           LLVM.General.Module                hiding (Module)
+import           LLVM.General.Module                     hiding (Module)
 import           LLVM.General.PrettyPrint
 
-import           Control.Monad                      hiding (void)
+import           Control.Monad                           hiding (void)
 import           Control.Monad.Trans.Except
 import           Control.Monad.Trans.State.Lazy
 import           Data.List
@@ -373,8 +375,60 @@ generateBExpression (F.BBinary op leftExpr rightExpr) = generateGBinary
         F.BAnd   -> And l r defaultInstrMeta
         F.BOr    -> Or l r defaultInstrMeta
         F.BNotEq -> Xor l r defaultInstrMeta
-generateBExpression (F.IRBinary _ _ _) = simpleBlock [] -- TODO
-generateBExpression (F.FRBinary _ _ _) = simpleBlock [] -- TODO
+generateBExpression (F.IRBinary rOp leftExpr rightExpr) =
+  do
+    leftInstrs <- generateIExpression leftExpr
+    leftResultReg <- lastUsedRegister
+    rightInstrs <- generateIExpression rightExpr
+    rightResultReg <- lastUsedRegister
+    reg <- claimRegister
+    bl <- simpleBlock
+            [ reg := ICmp
+                       (op rOp)
+                       (LocalReference i32 leftResultReg)
+                       (LocalReference i32 rightResultReg)
+                       defaultInstrMeta
+            ]
+    return $ leftInstrs ++
+             rightInstrs ++
+             bl
+
+  where
+    op r =
+      case r of
+        F.Less         -> IP.SLT
+        F.LessEqual    -> IP.SLE
+        F.Greater      -> IP.SGT
+        F.GreaterEqual -> IP.SGE
+        F.Equal        -> IP.EQ
+        F.NotEqual     -> IP.NE
+generateBExpression (F.FRBinary rOp leftExpr rightExpr) =
+  do
+    leftInstrs <- generateFExpression leftExpr
+    leftResultReg <- lastUsedRegister
+    rightInstrs <- generateFExpression rightExpr
+    rightResultReg <- lastUsedRegister
+    reg <- claimRegister
+    bl <- simpleBlock
+            [ reg := FCmp
+                       (op rOp)
+                       (LocalReference float leftResultReg)
+                       (LocalReference float rightResultReg)
+                       defaultInstrMeta
+            ]
+    return $ leftInstrs ++
+             rightInstrs ++
+             bl
+
+  where
+    op r =
+      case r of
+        F.Less         -> FP.OLT
+        F.LessEqual    -> FP.OLE
+        F.Greater      -> FP.OGT
+        F.GreaterEqual -> FP.OGE
+        F.Equal        -> FP.OEQ
+        F.NotEqual     -> FP.ONE
 generateBExpression (F.BCall symbol argExprs) = generateGCall symbol argExprs
 generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) = generateGAssign
                                                                               (Name name)
