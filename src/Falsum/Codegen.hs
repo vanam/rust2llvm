@@ -757,7 +757,7 @@ returnBlock :: Name -> Type -> Codegen [BasicBlock]
 returnBlock name ty =
   do
     currentId <- currentBlockIdentifier
-    --increaseBlockIdentifier
+    increaseBlockIdentifier
     return $ [block currentId [] $ Do $ Ret
                                           (if ty == void
                                              then Nothing
