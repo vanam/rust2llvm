@@ -125,6 +125,13 @@ strPointerType = PointerType i8 (AddrSpace 0)
 strArrayType :: Int -> Type
 strArrayType len = ArrayType (toEnum len) i8
 
+i1Lit :: Bool -> Constant
+i1Lit b = Int 1 i
+  where
+    i = (if b
+           then 1
+           else 0)
+
 i32Lit :: Integer -> Constant
 i32Lit = Int 32
 
@@ -134,8 +141,8 @@ charLit c = Int 8 $ toInteger (ord c)
 strLit :: String -> Constant
 strLit s = Array (strArrayType (length s)) $ map charLit s
 
-f32Lit :: Float -> Constant
-f32Lit = Float . Single
+floatLit :: Float -> Constant
+floatLit = Float . Single
 
 defaultAddrSpace :: AddrSpace
 defaultAddrSpace = AddrSpace 0
@@ -147,9 +154,8 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
                                        instructions
                                        terminator
 
--- TODO Generate all integer expressions, not just literal
+-- TODO IIf
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
--- (IExpr (IAssign (LValue (VarSymbol "a" Int)) (ILit 42))))
 generateIExpression (F.ILit val) =
   do
     reg <- UnName <$> claimRegisterNumber
@@ -207,7 +213,10 @@ generateIExpression (F.IBinary op leftExpr rightExpr) =
         F.IMinus -> Sub False False l r defaultInstrMeta
         F.IMult  -> Mul False False l r defaultInstrMeta
         F.IDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
-        _        -> undefined -- TODO other operations
+        F.IMod   -> SRem l r defaultInstrMeta
+        F.IAnd   -> And l r defaultInstrMeta
+        F.IOr    -> Or l r defaultInstrMeta
+        F.IXor   -> Xor l r defaultInstrMeta
 generateIExpression (F.ICall symbol argExprs) =
   case symbol of
     F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
@@ -222,6 +231,179 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
                        False
                        (LocalReference i32 (Name name))
                        (LocalReference i32 resultReg)
+                       Nothing
+                       align4
+                       defaultInstrMeta
+            ]
+    return $ instrs ++ bl
+
+-- TODO FIf
+generateFExpression :: F.FExpr -> Codegen [BasicBlock]
+generateFExpression (F.FLit val) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Alloca float Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference float reg) (ConstantOperand $ floatLit val) Nothing align4
+               defaultInstrMeta
+      ]
+generateFExpression (F.FVar (F.VarSymbol name F.Real)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [reg := Load False (LocalReference float (Name name)) Nothing align4 defaultInstrMeta]
+generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
+                 defaultInstrMeta
+      ]
+-- TODO use a const literal instead of a reference, AST has to/should be changed
+generateFExpression (F.FVar (F.ConstSymbol name F.Real)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
+                 defaultInstrMeta
+      ]
+generateFExpression (F.FNeg expr) =
+  do
+    instrs <- generateFExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock
+            [ reg := Sub False False (ConstantOperand $ floatLit 0) (LocalReference float resultReg)
+                       defaultInstrMeta
+            ]
+    return $ instrs ++ bl
+generateFExpression (F.FBinary op leftExpr rightExpr) =
+  do
+    leftInstrs <- generateFExpression leftExpr
+    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    rightInstrs <- generateFExpression rightExpr
+    rightResultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock
+            [ reg := opInstr (LocalReference float leftResultReg)
+                       (LocalReference float rightResultReg)
+            ]
+    return $ leftInstrs ++
+             rightInstrs ++
+             bl
+
+  where
+    opInstr l r =
+      case op of
+        F.FPlus  -> Add False False l r defaultInstrMeta
+        F.FMinus -> Sub False False l r defaultInstrMeta
+        F.FMult  -> Mul False False l r defaultInstrMeta
+        F.FDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
+generateFExpression (F.FCall symbol argExprs) =
+  case symbol of
+    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
+    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
+generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) =
+  do
+    instrs <- generateFExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock
+            [ reg := Store
+                       False
+                       (LocalReference float (Name name))
+                       (LocalReference float resultReg)
+                       Nothing
+                       align4
+                       defaultInstrMeta
+            ]
+    return $ instrs ++ bl
+
+-- TODO BIf, relation operators (IRBinary, FRBinary)
+generateBExpression :: F.BExpr -> Codegen [BasicBlock]
+generateBExpression (F.BLit val) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Alloca i1 Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference i1 reg) (ConstantOperand $ i1Lit val) Nothing align4
+               defaultInstrMeta
+      ]
+generateBExpression (F.BVar (F.VarSymbol name F.Bool)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock [reg := Load False (LocalReference i1 (Name name)) Nothing align4 defaultInstrMeta]
+generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
+                 defaultInstrMeta
+      ]
+-- TODO use a const literal instead of a reference, AST has to/should be changed
+generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) =
+  do
+    reg <- UnName <$> claimRegisterNumber
+    simpleBlock
+      [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
+                 defaultInstrMeta
+      ]
+generateBExpression (F.BNot expr) =
+  do
+    instrs <- generateBExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock
+            [ reg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 resultReg)
+                       defaultInstrMeta
+            ]
+    return $ instrs ++ bl
+generateBExpression (F.BBinary op leftExpr rightExpr) =
+  do
+    leftInstrs <- generateBExpression leftExpr
+    leftResultReg <- UnName <$> lastUsedRegisterNumber
+    rightInstrs <- generateBExpression rightExpr
+    rightResultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- if op /= F.BEq
+            then simpleBlock
+                   [ reg := opInstr (LocalReference i1 leftResultReg)
+                              (LocalReference i1 rightResultReg)
+                   ]
+            else do
+              regNeg <- UnName <$> claimRegisterNumber
+              simpleBlock
+                [ reg := Xor (LocalReference i1 leftResultReg) (LocalReference i1 rightResultReg)
+                           defaultInstrMeta
+                , regNeg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 reg)
+                              defaultInstrMeta
+                ]
+    return $ leftInstrs ++
+             rightInstrs ++
+             bl
+
+  where
+    opInstr l r =
+      case op of
+        F.BAnd   -> And l r defaultInstrMeta
+        F.BOr    -> Or l r defaultInstrMeta
+        F.BNotEq -> Xor l r defaultInstrMeta
+generateBExpression (F.IRBinary _ _ _) = simpleBlock [] -- TODO
+generateBExpression (F.FRBinary _ _ _) = simpleBlock [] -- TODO
+generateBExpression (F.BCall symbol argExprs) =
+  case symbol of
+    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
+    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
+generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) =
+  do
+    instrs <- generateBExpression expr
+    resultReg <- UnName <$> lastUsedRegisterNumber
+    reg <- UnName <$> claimRegisterNumber
+    bl <- simpleBlock
+            [ reg := Store
+                       False
+                       (LocalReference i1 (Name name))
+                       (LocalReference i1 resultReg)
                        Nothing
                        align4
                        defaultInstrMeta
@@ -254,13 +436,6 @@ genCall n aTys rTy isVararg argExprs = do
   bl <- simpleBlock call
   return $ instructions ++ bl
 
-generateFExpression :: F.FExpr -> Codegen [BasicBlock]
-generateFExpression _ = return [] -- TODO
-
-generateBExpression :: F.BExpr -> Codegen [BasicBlock]
-generateBExpression _ = simpleBlock []--return [] -- TODO
-
--- TODO Generate all expressions
 generateExpression :: F.Expr -> Codegen [BasicBlock]
 generateExpression (F.IExpr expr) = generateIExpression expr
 generateExpression (F.FExpr expr) = generateFExpression expr
@@ -372,7 +547,7 @@ constLetInAST (F.ConstLet sym val)    -- https://github.com/bscarlet/llvm-genera
  =
   case (sym, val) of
     ((F.ConstSymbol s F.Int), (F.IntVal v)) -> genGVar False (enrich s) i32 $ i32Lit $ toInteger v
-    ((F.ConstSymbol s F.Real), (F.RealVal v)) -> genGVar False (enrich s) float $ f32Lit v
+    ((F.ConstSymbol s F.Real), (F.RealVal v)) -> genGVar False (enrich s) float $ floatLit v
     ((F.ConstSymbol s F.String), (F.StringVal v)) -> genGVar True s (strArrayType (length v)) $ strLit
                                                                                                   v
   where
@@ -413,7 +588,8 @@ staticVarLetInAST varLet =
     (F.VarLet (F.GlobalVarSymbol s F.Int) (F.IExpr (F.IAssign _ (F.ILit v)))) -> genGVar False s i32 $ i32Lit $ toInteger
                                                                                                                   v
     (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FAssign _ (F.FLit v)))) -> genGVar False s
-                                                                                    float $ f32Lit v
+                                                                                    float $ floatLit
+                                                                                              v
 
 staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
