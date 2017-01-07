@@ -385,12 +385,7 @@ parseFnLet =
     checkStatementType t (Expr expr) = checkExprType t expr
     checkStatementType expectedType (Falsum.AST.Return (Just expr)) = checkExprType expectedType
                                                                         expr
-    checkStatementType expectedType (Falsum.AST.If _ branch1 (Just branch2)) = do
-      lastStatementBranch1 <- getLastStmt branch1
-      lastStatementBranch2 <- getLastStmt branch2
-      checkStatementType expectedType lastStatementBranch1
-      checkStatementType expectedType lastStatementBranch2
-    checkStatementType _ _ = return () -- other statements will not be checked
+    checkStatementType _ _ = unexpected "Missing return or implicit return expression"
 
 parseArg :: Parser Symbol
 parseArg =
@@ -416,6 +411,7 @@ parseStmt = choice
               , parseWhile
               , parseReturn
               , try parseVCall
+              , Expr <$> (IExpr <$> try parseIIf) -- no semicolon
               , parseIf
               , (Expr <$> parseExpr) <* structSymbol Semicolon
               ]
@@ -482,23 +478,6 @@ parseIIf = do
   elseBlock <- parseElse
   return $ IIf cond ifBlock elseBlock
 
-{-
-parseBIf :: Parser BExpr
-parseBIf = do
-  keyword Falsum.Lexer.If
-  cond <- parseBExpr
-  ifBlock <- parseBlock
-  elseBlock <- parseElse
-  return $ BIf cond ifBlock elseBlock
-
-parseFIf :: Parser FExpr
-parseFIf = do
-  keyword Falsum.Lexer.If
-  cond <- parseBExpr
-  ifBlock <- parseBlock
-  elseBlock <- parseElse
-  return $ FIf cond ifBlock elseBlock
--}
 parseVCall :: Parser Stmt
 parseVCall =
   do

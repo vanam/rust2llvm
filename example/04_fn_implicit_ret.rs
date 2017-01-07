@@ -1,19 +1,33 @@
 
+/*
 fn f1 () -> i32 {
-    let a: i32 = 21; //ok from parsers POV, this is statement and we dont check statements
+    let a: i32 = 21; //Illegal Missing return or implicit return expression)
 }
+*/
 
+/*
 fn f2 () -> i32 {
-    if true { //ok from parsers POV, this is statement and we dont check statements
+    if true {  //Illegal Missing return or implicit return expression)
         2.4;
     }
 }
+*/
+
+/*
+fn f3 () -> i32 {
+
+    while true {  //Illegal Missing return or implicit return expression)
+        -4.2;
+    }
+}
+*/
 
 fn f3 () -> i32 {
 
-    while true {  //ok from parsers POV, this is statement and we dont check statements
-        -4.2;
+    while true {
+        return -4.2;
     }
+    return 3; //ok
 }
 
 /*
@@ -27,11 +41,11 @@ fn f5 () -> i32 {
 }
 
 
-fn f6 () -> f32 {
+fn f6 () -> i32 {
     if true { //this if is expression
-        return 1.0; //ok
+        return 1; //ok
     } else {
-        1.2; //ok
+        1; //ok
     }
 }
 
