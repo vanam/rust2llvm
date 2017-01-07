@@ -154,20 +154,20 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
                                        instructions
                                        terminator
 
-generateGAlloca :: Type -> Codegen ([BasicBlock], Name)
-generateGAlloca ty =
+generateGAlloca :: Name -> Type -> Codegen ([BasicBlock], Name)
+generateGAlloca var ty =
   do
-    reg <- claimRegister
-    bl <- simpleBlock [reg := Alloca ty Nothing align4 defaultInstrMeta]
-    return $ (bl, reg)
+    --reg <- claimRegister
+    bl <- simpleBlock [var := Alloca ty Nothing align4 defaultInstrMeta]
+    return $ (bl, var)
 
 generateGSet :: Name -> Name -> Type -> Codegen [BasicBlock]
-generateGSet regTo regFrom ty =
+generateGSet var regFrom ty =
   do
-    reg <- claimRegister
+    --reg <- claimRegister
     simpleBlock
-      [ reg := Load False (LocalReference ty regFrom) Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference ty regTo) (LocalReference ty reg) Nothing align4
+      [-- reg := Load False (LocalReference ty regFrom) Nothing align4 defaultInstrMeta,
+      Do $ Store False (LocalReference ty var) (LocalReference ty regFrom) Nothing align4
                defaultInstrMeta
       ]
 
@@ -176,21 +176,23 @@ generateGLit val ty litFn =
   do
     reg <- claimRegister
     simpleBlock
-      [ reg := Alloca ty Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference ty reg) (ConstantOperand $ litFn val) Nothing align4
-               defaultInstrMeta
-      ]
+      [ reg := set ty (ConstantOperand $ litFn val)]
+  where neutral t
+            | t == i1 = ConstantOperand $ i1Lit False
+            | t == i32 = ConstantOperand $ i32Lit 0
+            | t == float = ConstantOperand $ floatLit 0
+        set t = if t == float then (\ s -> FAdd NoFastMathFlags s (neutral t) defaultInstrMeta) else (\ s -> Add False False s (neutral t) defaultInstrMeta)
 
 generateGVar :: Name -> Type -> (Name -> Operand) -> Codegen [BasicBlock]
-generateGVar varName ty opFn =
+generateGVar varName _ opFn =
   do
     reg <- claimRegister
-    newPlace <- claimRegister
+    --newPlace <- claimRegister
     simpleBlock
       [ reg := Load False (opFn varName) Nothing align4 defaultInstrMeta
-      , newPlace := Alloca ty Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference ty newPlace) (LocalReference ty reg) Nothing align4
-               defaultInstrMeta
+      --, newPlace := Alloca ty Nothing align4 defaultInstrMeta
+      --, Do $ Store False (LocalReference ty newPlace) (LocalReference ty reg) Nothing align4
+      --         defaultInstrMeta
       ]
 
 generateGNeg :: a -> (a -> Codegen [BasicBlock]) -> (Name -> Operand) -> (Operand -> Instruction) -> Codegen [BasicBlock]
@@ -226,11 +228,11 @@ generateGAssign varName opFn expr genExpr =
   do
     instrs <- genExpr expr
     resultReg <- lastUsedRegister
-    tmp <- claimRegister
+    --tmp <- claimRegister
     reg <- claimRegister
     bl <- simpleBlock
-            [ tmp := Load False (opFn resultReg) Nothing align4 defaultInstrMeta
-            , reg := Store False (opFn varName) (opFn tmp) Nothing align4 defaultInstrMeta
+            [-- tmp := Load False (opFn resultReg) Nothing align4 defaultInstrMeta,
+              reg := Store False (opFn varName) (opFn resultReg) Nothing align4 defaultInstrMeta
             ]
     return $ instrs ++ bl
 
@@ -239,7 +241,8 @@ generateGIf cond ty thenStmts elseStmts =
   do
     condBlock <- generateBExpression cond
     resultReg <- lastUsedRegister
-    allocBlock <- generateGAlloca ty
+    name <- ("_var" ++) <$> currentBlockIdentifier
+    allocBlock <- generateGAlloca (Name name) ty
     p <- nextInnerBlockIdentifier "then"
     n <- nextInnerBlockIdentifier "else"
     branchingBlock <- condBranchBlock (LocalReference i1 resultReg) p n
@@ -256,6 +259,9 @@ generateGIf cond ty thenStmts elseStmts =
     nJoin <- joinBlock
     removeNamedCounter
     increaseBlockIdentifier
+    resultToReg <- do
+      reg <- claimRegister
+      simpleBlock [reg := Load False (LocalReference ty (snd allocBlock)) Nothing align4 defaultInstrMeta]
     return $ condBlock ++
              fst allocBlock ++
              branchingBlock ++
@@ -264,7 +270,8 @@ generateGIf cond ty thenStmts elseStmts =
              [pJoin] ++
              nBr ++
              nSet ++
-             [nJoin]
+             [nJoin] ++
+             resultToReg
 
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 generateIExpression (F.ILit val) = generateGLit val i32 i32Lit
@@ -451,20 +458,20 @@ genCall n aTys rTy isVararg argExprs = do
     call Nothing instrs =
       do
         return [Do $ callInstr instrs]
-    call ty instrs =
+    call _ instrs =
       do
         reg <- claimRegister
-        newPlace <- claimRegister
+        --newPlace <- claimRegister
         return
           [ reg := callInstr instrs
-          , newPlace := Alloca (genTy ty) Nothing align4 defaultInstrMeta
-          , Do $ Store
+          --, newPlace := Alloca (genTy ty) Nothing align4 defaultInstrMeta
+          {-, Do $ Store
                    False
                    (LocalReference (genTy ty) newPlace)
                    (LocalReference (genTy ty) reg)
                    Nothing
                    align4
-                   defaultInstrMeta
+                   defaultInstrMeta-}
           ]
     callInstr instrs = Call
                          Nothing

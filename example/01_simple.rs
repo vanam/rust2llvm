@@ -18,9 +18,9 @@ fn main() {
     let mut b: i32 = ANSWER;
 
     if (a == b) {
-        a = 5;
+        a = 5;2;
     } else {
-        b = 6;
+        b = 6;3;
     }
 
     foo();
