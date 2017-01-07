@@ -9,6 +9,5 @@ fn main() {
         number = number - 1;
     }
 
-    // printf("Factorial = %d\n", factorial);
-    println!("Factorial = {}", factorial);
+    printf("Factorial = %d\n", factorial);
 }

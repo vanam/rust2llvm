@@ -16,8 +16,4 @@ fn main() {
     printf("Circumference (Perimeter) = %.2f\n", c);                                       // 31.42
     printf("Area of circle = %.2f\n", get_area(r));                          // get_area(5) = 78.54
     printf("Length of arc (central angle = 60 degrees) = %.2lf\n", 60.0 / 360.0 * c);       // 5.24
-
-    // println!("Circumference (Perimeter) = {:.2}\n", c);
-    // println!("Area of circle = {:.2}\n", get_area(r));
-    // println!("Length of arc (central angle = 60 degrees) = {:.2}\n", 60.0 / 360.0 * c);
 }

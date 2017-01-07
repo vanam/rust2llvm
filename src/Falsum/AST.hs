@@ -72,6 +72,7 @@ data BOp = BAnd
          | BOr
          | BEq
          | BNotEq
+         | BXor
   deriving (Show, Eq, Ord)
 
 data IOp = IPlus

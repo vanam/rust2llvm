@@ -1,4 +1,17 @@
 
+fn func() -> i32 {
+    //if as a expression and as implicit return statement
+    if true {
+        if true {
+            1;
+        } else {
+            2;
+        }
+    } else {
+        3;
+    }
+}
+
 fn main() {
     // let a: i32 = 0;
     let a: i32 = 1;
@@ -7,16 +20,21 @@ fn main() {
 
     if a == 0 {
         printf("Is zero\n");
-        // println!("Is zero");
     } else if a % 2 == 0 {
         printf("Is even\n");
-        // println!("Is even");
     } else {
         if a == 1 {
             printf("Is one\n");
-            // println!("Is one");
         }
         printf("Is odd\n");
-        // println!("Is odd");
     }
+
+    //if as a expression in assignment
+    a = if true {
+        1;
+    } else {
+        2;
+    };
+
+    func();
 }

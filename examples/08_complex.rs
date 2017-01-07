@@ -4,7 +4,12 @@ static RANDOM_SEED: i32 = 3;                              // random seed = 3, ot
 const N: i32 = 44448853;                                   // we assume that n is not a large prime
 
 fn abs_val(a: i32) -> i32 {
-    return if a > 0 { a } else { -a }
+    //if as a expression and expression as a implicit return statement
+    if a > 0 {
+         a;
+    } else {
+        -a;
+    }
 }
 
 fn mulmod(a: i32, b: i32, c: i32) -> i32 {            // returns (a * b) % c, and minimize overflow
@@ -24,7 +29,8 @@ fn mulmod(a: i32, b: i32, c: i32) -> i32 {            // returns (a * b) % c, an
 }
 
 fn gcd(a: i32, b: i32) -> i32 {
-    return if b == 0 { a } else { gcd(b, a % b) }
+    //support for direct recursion
+    return if b == 0 { a; } else { gcd(b, a % b); };
 }
 
 fn pollard_rho(n: i32) -> i32 {
@@ -34,7 +40,7 @@ fn pollard_rho(n: i32) -> i32 {
     let mut x:i32 = RANDOM_SEED;
     let mut y:i32 = RANDOM_SEED;
 
-    let mut d: i32;
+    let mut d: i32 = -1;
 
     loop {
         i = i + 1;
@@ -53,12 +59,12 @@ fn pollard_rho(n: i32) -> i32 {
         }
     }
     // unreachable
+    return -1; //set mandatory return
 }
 
 fn main() {
     let mut ans: i32 = pollard_rho(N);                      // break n into two non trivial factors
     if ans > N / ans { ans = N / ans; }                              // make ans the smaller factor
 
-    printf("%d %d\n", ans, n / ans);                                        // should be: 6661 6673
-    // println!("{} {}", ans, N / ans);
+    printf("%d %d\n", ans, N / ans);                                        // should be: 6661 6673
 }

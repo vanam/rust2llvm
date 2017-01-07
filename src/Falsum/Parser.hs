@@ -305,12 +305,18 @@ parseBinVarLet =
     symbName <- parseVarSymbolName
     state <- getState
     checkSymbolNotExists state symbName
+    optional parseBoolType
     operator EqSign
     valueExpr <- parseBExpr
     structSymbol Semicolon
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (BExpr (BAssign (LValue forgedSymbol) valueExpr))
+  where
+    parseBoolType = do
+      structSymbol Colon
+      parseType
+      return ()
 
 parseVarSymbolName :: Parser String
 parseVarSymbolName =
@@ -369,13 +375,14 @@ parseFnLet =
     checkSymbolNotExists state fnName
     fnParams <- inParens $ parseArg `sepBy` comma
     fnReturnType <- optionMaybe parseReturnType
+    putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
+    state <- getState
     putState $ setReturnTypeOfScope state fnReturnType
     modifyState addNewScope
     addParamsToScope fnParams
     fnBlock <- parseBlock
     checkBlockType fnReturnType fnBlock
     modifyState removeCurrentScope
-    putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
     return $ FnLet (FnSymbol fnName (map getType fnParams) fnReturnType) fnParams fnBlock
 
   where
@@ -480,11 +487,13 @@ parseIf = do
   ifBlock <- parseBlock
   elseBlock <- optionMaybe parseElse
   return $ Falsum.AST.If cond ifBlock elseBlock
-
-parseElse :: Parser [Stmt]
-parseElse = do
-  keyword Else
-  parseBlock
+  where
+    parseElse = do
+      keyword Else
+      choice [parseIfAsList, parseBlock]
+    parseIfAsList = do
+      ifres <- parseIf
+      return [ifres]
 
 parseIIf :: Parser IExpr
 parseIIf = do
@@ -493,6 +502,13 @@ parseIIf = do
   ifBlock <- parseBlock
   elseBlock <- parseElse
   return $ IIf cond ifBlock elseBlock
+  where
+    parseElse = do
+      keyword Else
+      choice [parseIfAsList, parseBlock]
+    parseIfAsList = do
+      ifres <- parseIIf --must be typed too
+      return [Expr (IExpr ifres)]
 
 parseVCall :: Parser Stmt
 parseVCall =
@@ -640,6 +656,7 @@ bBinaryTable = [ [prefix Not BNot]
                , [binaryl DoubleOr (BBinary BOr)]
                , [binaryl And (BBinary BAnd)]
                , [binaryl Or (BBinary BOr)]
+               , [binaryl Caret (BBinary BXor)]
                ]
 
 parseBExpr :: Parser BExpr
