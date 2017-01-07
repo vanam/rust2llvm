@@ -148,58 +148,80 @@ block name instructions terminator = BasicBlock  -- https://github.com/bscarlet/
                                        instructions
                                        terminator
 
--- TODO IIf
-generateIExpression :: F.IExpr -> Codegen [BasicBlock]
-generateIExpression (F.ILit val) =
+generateGLit :: a -> Type -> (a -> Constant) -> Codegen [BasicBlock]
+generateGLit val ty litFn =
   do
     reg <- claimRegister
     simpleBlock
-      [ reg := Alloca i32 Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference i32 reg) (ConstantOperand $ i32Lit val) Nothing align4
+      [ reg := Alloca ty Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference ty reg) (ConstantOperand $ litFn val) Nothing align4
                defaultInstrMeta
       ]
-generateIExpression (F.IVar (F.VarSymbol name F.Int)) =
+
+generateGVar :: Name -> (Name -> Operand) -> Codegen [BasicBlock]
+generateGVar varName opFn =
   do
     reg <- claimRegister
-    simpleBlock [reg := Load False (LocalReference i32 (Name name)) Nothing align4 defaultInstrMeta]
-generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) =
+    simpleBlock [reg := Load False (opFn varName) Nothing align4 defaultInstrMeta]
+
+generateGNeg :: a -> (a -> Codegen [BasicBlock]) -> (Name -> Operand) -> (Operand -> Instruction) -> Codegen [BasicBlock]
+generateGNeg expr genExpr opFn negFn =
   do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
--- TODO use a const literal instead of a reference, AST has to/should be changed
-generateIExpression (F.IVar (F.ConstSymbol name F.Int)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference i32 (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
-generateIExpression (F.INeg expr) =
-  do
-    instrs <- generateIExpression expr
+    instrs <- genExpr expr
     resultReg <- lastUsedRegister
     reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Sub False False (ConstantOperand $ i32Lit 0) (LocalReference i32 resultReg)
-                       defaultInstrMeta
-            ]
+    bl <- simpleBlock [reg := negFn (opFn resultReg)]
     return $ instrs ++ bl
-generateIExpression (F.IBinary op leftExpr rightExpr) =
+
+generateGCall :: F.Symbol -> [F.Expr] -> Codegen [BasicBlock]
+generateGCall symbol argExprs =
+  case symbol of
+    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
+    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
+
+generateGBinary :: (Operand -> Operand -> Instruction) -> (Name -> Operand) -> a -> a -> (a -> Codegen [BasicBlock]) -> Codegen [BasicBlock]
+generateGBinary opInstr opFn leftExpr rightExpr genExpr =
   do
-    leftInstrs <- generateIExpression leftExpr
+    leftInstrs <- genExpr leftExpr
     leftResultReg <- lastUsedRegister
-    rightInstrs <- generateIExpression rightExpr
+    rightInstrs <- genExpr rightExpr
     rightResultReg <- lastUsedRegister
     reg <- claimRegister
-    bl <- simpleBlock
-            [reg := opInstr (LocalReference i32 leftResultReg) (LocalReference i32 rightResultReg)]
+    bl <- simpleBlock [reg := opInstr (opFn leftResultReg) (opFn rightResultReg)]
     return $ leftInstrs ++
              rightInstrs ++
              bl
 
+generateGAssign :: Name -> (Name -> Operand) -> a -> (a -> Codegen [BasicBlock]) -> Codegen [BasicBlock]
+generateGAssign varName opFn expr genExpr =
+  do
+    instrs <- genExpr expr
+    resultReg <- lastUsedRegister
+    reg <- claimRegister
+    bl <- simpleBlock
+            [reg := Store False (opFn varName) (opFn resultReg) Nothing align4 defaultInstrMeta]
+    return $ instrs ++ bl
+
+-- TODO IIf
+generateIExpression :: F.IExpr -> Codegen [BasicBlock]
+generateIExpression (F.ILit val) = generateGLit val i32 i32Lit
+generateIExpression (F.IVar (F.VarSymbol name F.Int)) = generateGVar (Name name)
+                                                          (LocalReference i32)
+generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                              i32)
+-- TODO use a const literal instead of a reference, AST has to/should be changed
+generateIExpression (F.IVar (F.ConstSymbol name F.Int)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                          i32)
+generateIExpression (F.INeg expr) = generateGNeg expr generateIExpression (LocalReference i32)
+                                      (\o ->
+                                         Sub False False (ConstantOperand $ i32Lit 0) o
+                                           defaultInstrMeta)
+generateIExpression (F.IBinary op leftExpr rightExpr) = generateGBinary
+                                                          opInstr
+                                                          (LocalReference i32)
+                                                          leftExpr
+                                                          rightExpr
+                                                          generateIExpression
   where
     opInstr l r =
       case op of
@@ -211,82 +233,34 @@ generateIExpression (F.IBinary op leftExpr rightExpr) =
         F.IAnd   -> And l r defaultInstrMeta
         F.IOr    -> Or l r defaultInstrMeta
         F.IXor   -> Xor l r defaultInstrMeta
-generateIExpression (F.ICall symbol argExprs) =
-  case symbol of
-    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
-    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
-generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) =
-  do
-    instrs <- generateIExpression expr
-    resultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Store
-                       False
-                       (LocalReference i32 (Name name))
-                       (LocalReference i32 resultReg)
-                       Nothing
-                       align4
-                       defaultInstrMeta
-            ]
-    return $ instrs ++ bl
+generateIExpression (F.ICall symbol argExprs) = generateGCall symbol argExprs
+generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) = generateGAssign
+                                                                             (Name name)
+                                                                             (LocalReference i32)
+                                                                             expr
+                                                                             generateIExpression
 generateIExpression (F.IIf _ _ _) = simpleBlock [] -- TODO
 
 -- TODO FIf
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
-generateFExpression (F.FLit val) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Alloca float Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference float reg) (ConstantOperand $ floatLit val) Nothing align4
-               defaultInstrMeta
-      ]
-generateFExpression (F.FVar (F.VarSymbol name F.Real)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [reg := Load False (LocalReference float (Name name)) Nothing align4 defaultInstrMeta]
-generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
+generateFExpression (F.FLit val) = generateGLit val float floatLit
+generateFExpression (F.FVar (F.VarSymbol name F.Real)) = generateGVar (Name name)
+                                                           (LocalReference float)
+generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                               float)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
-generateFExpression (F.FVar (F.ConstSymbol name F.Real)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference float (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
-generateFExpression (F.FNeg expr) =
-  do
-    instrs <- generateFExpression expr
-    resultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Sub False False (ConstantOperand $ floatLit 0) (LocalReference float resultReg)
-                       defaultInstrMeta
-            ]
-    return $ instrs ++ bl
-generateFExpression (F.FBinary op leftExpr rightExpr) =
-  do
-    leftInstrs <- generateFExpression leftExpr
-    leftResultReg <- lastUsedRegister
-    rightInstrs <- generateFExpression rightExpr
-    rightResultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := opInstr (LocalReference float leftResultReg)
-                       (LocalReference float rightResultReg)
-            ]
-    return $ leftInstrs ++
-             rightInstrs ++
-             bl
-
+generateFExpression (F.FVar (F.ConstSymbol name F.Real)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                           float)
+generateFExpression (F.FNeg expr) = generateGNeg expr generateFExpression (LocalReference float)
+                                      (\o ->
+                                         Sub False False (ConstantOperand $ floatLit 0) o
+                                           defaultInstrMeta)
+generateFExpression (F.FBinary op leftExpr rightExpr) = generateGBinary
+                                                          opInstr
+                                                          (LocalReference float)
+                                                          leftExpr
+                                                          rightExpr
+                                                          generateFExpression
   where
     opInstr l r =
       case op of
@@ -294,90 +268,48 @@ generateFExpression (F.FBinary op leftExpr rightExpr) =
         F.FMinus -> Sub False False l r defaultInstrMeta
         F.FMult  -> Mul False False l r defaultInstrMeta
         F.FDiv   -> SDiv True l r defaultInstrMeta -- TODO is it right?
-generateFExpression (F.FCall symbol argExprs) =
-  case symbol of
-    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
-    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
-generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) =
-  do
-    instrs <- generateFExpression expr
-    resultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Store
-                       False
-                       (LocalReference float (Name name))
-                       (LocalReference float resultReg)
-                       Nothing
-                       align4
-                       defaultInstrMeta
-            ]
-    return $ instrs ++ bl
+generateFExpression (F.FCall symbol argExprs) = generateGCall symbol argExprs
+generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) = generateGAssign
+                                                                              (Name name)
+                                                                              (LocalReference float)
+                                                                              expr
+                                                                              generateFExpression
 generateFExpression (F.FIf _ _ _) = simpleBlock [] -- TODO
 
 -- TODO BIf, relation operators (IRBinary, FRBinary)
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
-generateBExpression (F.BLit val) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Alloca i1 Nothing align4 defaultInstrMeta
-      , Do $ Store False (LocalReference i1 reg) (ConstantOperand $ i1Lit val) Nothing align4
-               defaultInstrMeta
-      ]
-generateBExpression (F.BVar (F.VarSymbol name F.Bool)) =
-  do
-    reg <- claimRegister
-    simpleBlock [reg := Load False (LocalReference i1 (Name name)) Nothing align4 defaultInstrMeta]
-generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
+generateBExpression (F.BLit val) = generateGLit val i1 i1Lit
+generateBExpression (F.BVar (F.VarSymbol name F.Bool)) = generateGVar (Name name)
+                                                           (LocalReference i1)
+generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                               i1)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
-generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) =
-  do
-    reg <- claimRegister
-    simpleBlock
-      [ reg := Load False (ConstantOperand (GlobalReference i1 (Name name))) Nothing align4
-                 defaultInstrMeta
-      ]
-generateBExpression (F.BNot expr) =
-  do
-    instrs <- generateBExpression expr
-    resultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 resultReg)
-                       defaultInstrMeta
-            ]
-    return $ instrs ++ bl
-generateBExpression (F.BBinary op leftExpr rightExpr) =
+generateBExpression (F.BVar (F.ConstSymbol name F.Bool)) = generateGVar (Name name) $ ConstantOperand . (GlobalReference
+                                                                                                           i1)
+generateBExpression (F.BNot expr) = generateGNeg expr generateBExpression (LocalReference i1)
+                                      (\o -> Xor (ConstantOperand $ i1Lit True) o defaultInstrMeta)
+generateBExpression (F.BBinary F.BEq leftExpr rightExpr) =
   do
     leftInstrs <- generateBExpression leftExpr
     leftResultReg <- lastUsedRegister
     rightInstrs <- generateBExpression rightExpr
     rightResultReg <- lastUsedRegister
     reg <- claimRegister
-    bl <- if op /= F.BEq
-            then simpleBlock
-                   [ reg := opInstr (LocalReference i1 leftResultReg)
-                              (LocalReference i1 rightResultReg)
-                   ]
-            else do
-              regNeg <- claimRegister
-              simpleBlock
-                [ reg := Xor (LocalReference i1 leftResultReg) (LocalReference i1 rightResultReg)
-                           defaultInstrMeta
-                , regNeg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 reg)
-                              defaultInstrMeta
-                ]
+    regNeg <- claimRegister
+    bl <- simpleBlock
+            [ reg := Xor (LocalReference i1 leftResultReg) (LocalReference i1 rightResultReg)
+                       defaultInstrMeta
+            , regNeg := Xor (ConstantOperand $ i1Lit True) (LocalReference i1 reg) defaultInstrMeta
+            ]
     return $ leftInstrs ++
              rightInstrs ++
              bl
-
+generateBExpression (F.BBinary op leftExpr rightExpr) = generateGBinary
+                                                          opInstr
+                                                          (LocalReference i1)
+                                                          leftExpr
+                                                          rightExpr
+                                                          generateBExpression
   where
     opInstr l r =
       case op of
@@ -386,25 +318,12 @@ generateBExpression (F.BBinary op leftExpr rightExpr) =
         F.BNotEq -> Xor l r defaultInstrMeta
 generateBExpression (F.IRBinary _ _ _) = simpleBlock [] -- TODO
 generateBExpression (F.FRBinary _ _ _) = simpleBlock [] -- TODO
-generateBExpression (F.BCall symbol argExprs) =
-  case symbol of
-    F.FnSymbol name argTypes retType         -> genCall name argTypes retType False argExprs
-    F.VariadicFnSymbol name argTypes retType -> genCall name argTypes retType True argExprs
-generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) =
-  do
-    instrs <- generateBExpression expr
-    resultReg <- lastUsedRegister
-    reg <- claimRegister
-    bl <- simpleBlock
-            [ reg := Store
-                       False
-                       (LocalReference i1 (Name name))
-                       (LocalReference i1 resultReg)
-                       Nothing
-                       align4
-                       defaultInstrMeta
-            ]
-    return $ instrs ++ bl
+generateBExpression (F.BCall symbol argExprs) = generateGCall symbol argExprs
+generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) = generateGAssign
+                                                                              (Name name)
+                                                                              (LocalReference i1)
+                                                                              expr
+                                                                              generateBExpression
 generateBExpression (F.BIf _ _ _) = simpleBlock [] -- TODO
 
 genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
