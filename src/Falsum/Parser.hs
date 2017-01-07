@@ -312,6 +312,7 @@ parseBinVarLet =
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (BExpr (BAssign (LValue forgedSymbol) valueExpr))
+
   where
     parseBoolType = do
       structSymbol Colon
@@ -487,6 +488,7 @@ parseIf = do
   ifBlock <- parseBlock
   elseBlock <- optionMaybe parseElse
   return $ Falsum.AST.If cond ifBlock elseBlock
+
   where
     parseElse = do
       keyword Else
@@ -502,6 +504,7 @@ parseIIf = do
   ifBlock <- parseBlock
   elseBlock <- parseElse
   return $ IIf cond ifBlock elseBlock
+
   where
     parseElse = do
       keyword Else

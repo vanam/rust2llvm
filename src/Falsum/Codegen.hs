@@ -162,15 +162,14 @@ generateGAlloca ty =
     return $ (bl, reg)
 
 generateGSet :: Name -> Name -> Type -> Codegen [BasicBlock]
-generateGSet regTo regFrom ty = simpleBlock
-                                  [ Do $ Store
-                                           False
-                                           (LocalReference ty regTo)
-                                           (LocalReference ty regFrom)
-                                           Nothing
-                                           align4
-                                           defaultInstrMeta
-                                  ]
+generateGSet regTo regFrom ty =
+  do
+    reg <- claimRegister
+    simpleBlock
+      [ reg := Load False (LocalReference ty regFrom) Nothing align4 defaultInstrMeta
+      , Do $ Store False (LocalReference ty regTo) (LocalReference ty reg) Nothing align4
+               defaultInstrMeta
+      ]
 
 generateGLit :: a -> Type -> (a -> Constant) -> Codegen [BasicBlock]
 generateGLit val ty litFn =
@@ -678,8 +677,8 @@ staticVarLetInAST varLet =
     (F.VarLet (F.GlobalVarSymbol s F.Real) (F.FExpr (F.FAssign _ (F.FLit v)))) -> genGVar False s
                                                                                     float $ floatLit
                                                                                               v
-    (F.VarLet (F.GlobalVarSymbol s F.Bool) (F.BExpr (F.BAssign _ (F.BLit v)))) -> genGVar False s
-                                                                                    i1 $ i1Lit v
+    (F.VarLet (F.GlobalVarSymbol s F.Bool) (F.BExpr (F.BAssign _ (F.BLit v)))) -> genGVar False s i1 $ i1Lit
+                                                                                                         v
 
 staticVarLetListInAST :: [F.VarLet] -> [Global]
 staticVarLetListInAST = map staticVarLetInAST
