@@ -289,8 +289,9 @@ generateGIf cond ty thenStmts elseStmts =
 
 generateIExpression :: F.IExpr -> Codegen [BasicBlock]
 generateIExpression (F.ILit val) = generateGLit val i32 i32Lit
-generateIExpression (F.IVar (F.VarSymbol name F.Int)) = generateGVar (Name name) i32
-                                                          (LocalReference i32)
+generateIExpression (F.IVar sym@(F.VarSymbol _ _)) = do
+  var <- substituteArg sym
+  generateGVar var i32 (LocalReference i32)
 generateIExpression (F.IVar (F.GlobalVarSymbol name F.Int)) = generateGVar (Name name) i32 $ ConstantOperand . (GlobalReference
                                                                                                                   i32)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
@@ -327,8 +328,9 @@ generateIExpression (F.IIf cond p n) = generateGIf cond i32 p n
 
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
 generateFExpression (F.FLit val) = generateGLit val float floatLit
-generateFExpression (F.FVar (F.VarSymbol name F.Real)) = generateGVar (Name name) float
-                                                           (LocalReference float)
+generateFExpression (F.FVar sym@(F.VarSymbol _ _)) = do
+  var <- substituteArg sym
+  generateGVar var float (LocalReference float)
 generateFExpression (F.FVar (F.GlobalVarSymbol name F.Real)) = generateGVar (Name name) float $ ConstantOperand . (GlobalReference
                                                                                                                      float)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
@@ -361,8 +363,9 @@ generateFExpression (F.FIf cond p n) = generateGIf cond float p n
 
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
 generateBExpression (F.BLit val) = generateGLit val i1 i1Lit
-generateBExpression (F.BVar (F.VarSymbol name F.Bool)) = generateGVar (Name name) i1
-                                                           (LocalReference i1)
+generateBExpression (F.BVar sym@(F.VarSymbol _ _)) = do
+  var <- substituteArg sym
+  generateGVar var i1 (LocalReference i1)
 generateBExpression (F.BVar (F.GlobalVarSymbol name F.Bool)) = generateGVar (Name name) i1 $ ConstantOperand . (GlobalReference
                                                                                                                   i1)
 -- TODO use a const literal instead of a reference, AST has to/should be changed
