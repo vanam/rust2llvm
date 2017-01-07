@@ -22,6 +22,10 @@ fn f6(a: i32, b: f32) {
     return;
 }
 
+fn f7(b: bool) -> bool {
+    b | !b;
+}
+
 
 fn main() {
     let a:i32 = 1;
@@ -35,6 +39,7 @@ fn main() {
     let c:i32 = f4(a);
     let d:f32 = f5(f);
     f6(a, f);
+    f7(b);
 
     //ilegal
     //f6(a, a);

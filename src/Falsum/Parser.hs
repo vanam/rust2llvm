@@ -61,6 +61,7 @@ checkSymbolNotExists :: ParseState -> String -> Parser ()
 checkSymbolNotExists state sym = do
   checkExists $ lookupSymbol state sym
   return ()
+
   where
     checkExists Nothing = return ()
     checkExists (Just x) = unexpected $ "Symbol " ++ show x ++ " allready exist"
@@ -159,10 +160,12 @@ tokenizeParse sn = bimap lexerError (parse sn) . tokenize sn
     lexerError = addErrorMessage (Message "LEXER complaints")
 
 parseType :: Parser ValueType
-parseType = t <$> choice [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32"]
+parseType = t <$> choice
+                    [satisfy $ isSymbol "i32", satisfy $ isSymbol "f32", satisfy $ isSymbol "bool"]
   where
     t (Symbol "i32") = Int
     t (Symbol "f32") = Real
+    t (Symbol "bool") = Bool
 
 symbolName :: Token -> String
 symbolName (Symbol s) = s
@@ -635,6 +638,8 @@ bBinaryTable = [ [prefix Not BNot]
                , [binaryl Neq (BBinary BNotEq)]
                , [binaryl DoubleAnd (BBinary BAnd)]
                , [binaryl DoubleOr (BBinary BOr)]
+               , [binaryl And (BBinary BAnd)]
+               , [binaryl Or (BBinary BOr)]
                ]
 
 parseBExpr :: Parser BExpr
