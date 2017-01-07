@@ -442,6 +442,18 @@ generateStatement stmt
         bl <- simpleBlock [allocInstr]
         initInstrs <- generateExpression expr
         return $ bl ++ initInstrs
+  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Real) expr)) <- stmt =
+      do
+        allocInstr <- return (Name name := Alloca float Nothing align4 defaultInstrMeta)
+        bl <- simpleBlock [allocInstr]
+        initInstrs <- generateExpression expr
+        return $ bl ++ initInstrs
+  | (F.VarLetStmt (F.VarLet (F.VarSymbol name F.Bool) expr)) <- stmt =
+      do
+        allocInstr <- return (Name name := Alloca i1 Nothing align4 defaultInstrMeta)
+        bl <- simpleBlock [allocInstr]
+        initInstrs <- generateExpression expr
+        return $ bl ++ initInstrs
   -- Expr (...)
   | (F.Expr e) <- stmt = generateExpression e
   -- VCall (FnSymbol "foo" Nothing) [args]
