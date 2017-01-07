@@ -57,6 +57,14 @@ safeLookupSymbol searchSymbol failMsg = maybe (unexpected $ failMsg ++ show sear
                                                                                                      lookupSymbol
                                                                                                      searchSymbol <$> getState
 
+checkSymbolNotExists :: ParseState -> String -> Parser ()
+checkSymbolNotExists state sym = do
+  checkExists $ lookupSymbol state sym
+  return ()
+  where
+    checkExists Nothing = return ()
+    checkExists (Just x) = unexpected $ "Symbol " ++ show x ++ " allready exist"
+
 addNewScope :: ParseState -> ParseState
 addNewScope (ParseState scopes returnType) = ParseState ([Scope []] ++ scopes) returnType
 
@@ -261,6 +269,7 @@ parseIVarLet =
   do
     symbName <- parseVarSymbolName
     state <- getState
+    checkSymbolNotExists state symbName
     structSymbol Colon
     ty <- parseType
     operator EqSign
@@ -276,12 +285,13 @@ parseFVarLet :: Parser VarLet
 parseFVarLet =
   do
     symbName <- parseVarSymbolName
+    state <- getState
+    checkSymbolNotExists state symbName
     structSymbol Colon
     ty <- parseType
     operator EqSign
     valueExpr <- parseFExpr
     structSymbol Semicolon
-    state <- getState
     forgedSymbol <- forgeSymbol symbName ty
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (FExpr (FAssign (LValue forgedSymbol) valueExpr))
@@ -290,10 +300,11 @@ parseBinVarLet :: Parser VarLet
 parseBinVarLet =
   do
     symbName <- parseVarSymbolName
+    state <- getState
+    checkSymbolNotExists state symbName
     operator EqSign
     valueExpr <- parseBExpr
     structSymbol Semicolon
-    state <- getState
     forgedSymbol <- forgeSymbol symbName Bool
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (BExpr (BAssign (LValue forgedSymbol) valueExpr))
@@ -310,12 +321,13 @@ parseConstLet =
   do
     keyword Const
     symbName <- parseSymbolName
+    state <- getState
+    checkSymbolNotExists state symbName
     structSymbol Colon
     ty <- parseType
     operator EqSign
     valueLit <- parseLiteral
     structSymbol Semicolon
-    state <- getState
     putState $ addSymbolToScope (ConstSymbol symbName ty) state
     return $ ConstLet (ConstSymbol symbName ty) valueLit
 
@@ -351,12 +363,14 @@ parseFnLet =
       then unexpected "Defining function out of root scope"
       else return ()
     fnName <- parseSymbolName
+    checkSymbolNotExists state fnName
     fnParams <- inParens $ parseArg `sepBy` comma
     fnReturnType <- optionMaybe parseReturnType
     putState $ setReturnTypeOfScope state fnReturnType
     modifyState addNewScope
     addParamsToScope fnParams
     fnBlock <- parseBlock
+    checkBlockType fnReturnType fnBlock
     modifyState removeCurrentScope
     putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
     return $ FnLet (FnSymbol fnName (map getType fnParams) fnReturnType) fnParams fnBlock
@@ -364,6 +378,27 @@ parseFnLet =
   where
     addParamsToScope = mapM_ (modifyState . addSymbolToScope)
     getType (VarSymbol _ valType) = valType
+
+    checkBlockType :: Maybe ValueType -> [Stmt] -> Parser ()
+    checkBlockType Nothing _ = return ()
+    checkBlockType (Just blockType) statements = do
+      lastStatement <- getLastStmt statements
+      checkStatementType blockType lastStatement
+
+    checkExprType :: ValueType -> Expr -> Parser ()
+    checkExprType Int (IExpr _) = return ()
+    checkExprType Real (FExpr _) = return ()
+    checkExprType Bool (BExpr _) = return ()
+    checkExprType _ _ = unexpected "Expected type does not match"
+
+    getLastStmt [] = unexpected "Missing return or implicit return expression"
+    getLastStmt statements = pure $ last statements
+
+    checkStatementType :: ValueType -> Stmt -> Parser ()
+    checkStatementType t (Expr expr) = checkExprType t expr
+    checkStatementType expectedType (Falsum.AST.Return (Just expr)) = checkExprType expectedType
+                                                                        expr
+    checkStatementType _ _ = unexpected "Missing return or implicit return expression"
 
 parseArg :: Parser Symbol
 parseArg =
@@ -389,6 +424,7 @@ parseStmt = choice
               , parseWhile
               , parseReturn
               , try parseVCall
+              , Expr <$> (IExpr <$> try parseIIf) -- no semicolon
               , parseIf
               , (Expr <$> parseExpr) <* structSymbol Semicolon
               ]
@@ -455,23 +491,6 @@ parseIIf = do
   elseBlock <- parseElse
   return $ IIf cond ifBlock elseBlock
 
-{-
-parseBIf :: Parser BExpr
-parseBIf = do
-  keyword Falsum.Lexer.If
-  cond <- parseBExpr
-  ifBlock <- parseBlock
-  elseBlock <- parseElse
-  return $ BIf cond ifBlock elseBlock
-
-parseFIf :: Parser FExpr
-parseFIf = do
-  keyword Falsum.Lexer.If
-  cond <- parseBExpr
-  ifBlock <- parseBlock
-  elseBlock <- parseElse
-  return $ FIf cond ifBlock elseBlock
--}
 parseVCall :: Parser Stmt
 parseVCall =
   do
