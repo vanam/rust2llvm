@@ -493,6 +493,33 @@ generateStatement stmt
             removeNamedCounter
             increaseBlockIdentifier
             return $ condBlock ++ branchingBlock ++ pBr ++ [pJoin] ++ nBr ++ [nJoin]
+  | (F.Loop stmts) <- stmt =
+      do
+        loopStart <- nextInnerBlockIdentifier "loop"
+        jmpIn <- jumpBlock loopStart
+        addNamedCounter "loop"
+        blocks <- generateStatements stmts
+        jmp <- jumpBlock loopStart
+        removeNamedCounter
+        increaseBlockIdentifier
+        return $ [jmpIn] ++ blocks ++ [jmp]
+  | (F.While cond stmts) <- stmt =
+      do
+        whileStart <- nextInnerBlockIdentifier "while"
+        jmpIn <- jumpBlock whileStart
+        addNamedCounter "while"
+        condBlock <- generateBExpression cond
+        resultReg <- lastUsedRegister
+        whileEnd <- nextOuterBlockIdentifier
+        whileInner <- nextInnerBlockIdentifier "whileBody"
+        branchingBlock <- condBranchBlock (LocalReference i1 resultReg) whileInner whileEnd
+        addNamedCounter "whileBody"
+        whileBody <- generateStatements stmts
+        jmp <- jumpBlock whileStart
+        removeNamedCounter
+        removeNamedCounter
+        increaseBlockIdentifier
+        return $ [jmpIn] ++ condBlock ++ branchingBlock ++ whileBody ++ [jmp]
 
 -- | otherwise = fail $ show stmt
 generateStatements :: [F.Stmt] -> Codegen [BasicBlock]
@@ -664,6 +691,12 @@ joinBlock =
     currentId <- currentBlockIdentifier
     outerId <- nextOuterBlockIdentifier
     return $ block currentId [] $ Do $ Br outerId defaultInstrMeta
+
+jumpBlock :: Name -> Codegen BasicBlock
+jumpBlock label =
+  do
+    currentId <- currentBlockIdentifier
+    return $ block currentId [] $ Do $ Br label defaultInstrMeta
 
 fnLetInAST' :: F.FnLet -> Codegen Global
 -- FnLet (FnSymbol "name" Nothing) [args] [stmts]
