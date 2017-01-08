@@ -19,7 +19,7 @@
 <ConstLet> ::= "const" <SymbolName> ":" <Type> "=" <Literal> ";"
 <SymbolName> ::= _isAnySymbol_
 <Type> ::= "i32" | "f32" | "bool"
-<Literal> ::= _isAnyLiteral_
+<Literal> ::= _intLiteral_ | _floatLiteral_ | <BoolLiteral>
 
 <IVarLet> ::= <VarSymbolName> ":" "i32" "=" , <IExpr_IIf> | <IExpr> ";"
 <FVarLet> ::= <VarSymbolName> ":" "f32" "=" <FExpr> ";"
@@ -27,16 +27,21 @@
 
 <VarSymbolName> ::= "let" | "static" , <SymbolName> [ "mut" ]
 
-<IExpr> ::= operator_magic(<ITerm>)
-<ITerm> ::= "(" <IExpr> ")" | <Call> | <IAssign> | <SymbolName> | <IIf> | _intLiteral_
-<FExpr> ::= operator_magic(<FTerm>)
-<FTerm> ::= "(" <FExpr> ")" | <Call> | <FAssign> | <SymbolName> | _floatLiteral_
-<BExpr> ::= operator_magic(<BTerm>)
-<BTerm> ::= "(" <BExpr> ")" | <Relation> | <Call> | <BAssign> | <SymbolName> | "true" | "false"
+<IExpr> ::= <ITerm> | OPERATOR_MAGIC(<ITerm>) <- "-" <- "*","/","%" <- "+","-" <- "&" <- "^" <- "|"
+<ITerm> ::= "(" <IExpr> ")" | <Term> | <IAssign> | <SymbolName> | <IIf> | _intLiteral_
+<FExpr> ::= <FTerm> | OPERATOR_MAGIC(<FTerm>) <- "-" <- "*","/" <- "+","-"
+<FTerm> ::= "(" <FExpr> ")" | <Term> | <FAssign> | <SymbolName> | _floatLiteral_
+<BExpr> ::= <BTerm> | OPERATOR_MAGIC(<BTerm>) <- "!" <- "==" <- "/=" <- "&&" <- "||" <- "&" <- "|" <- "^"
+<BTerm> ::= "(" <BExpr> ")" | <Term> | <Relation> | <BAssign> | <SymbolName> | <BoolLiteral>
+
+<Term> ::= <Call> | <SymbolName>
+<BoolLiteral> ::= "true" | "false"
 
 <IAssign> ::= <SymbolName> "=" <IExpr>
 <FAssign> ::= <SymbolName> "=" <FExpr>
 <BAssign> ::= <SymbolName> "=" <BExpr>
 
-<Relation> ::= <IExpr> _isRelationOperator_ <IExpr>
-             | <FExpr> _isRelationOperator_ <FExpr>
+<Relation> ::= <IExpr> <RelationOperator> <IExpr>
+             | <FExpr> <RelationOperator> <FExpr>
+
+<RelationOperator> ::= "==" | "!=" | "<" | ">" | "<=" | ">="
