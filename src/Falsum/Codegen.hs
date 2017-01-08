@@ -361,6 +361,7 @@ generateFExpression (F.FAssign (F.LValue (F.VarSymbol name F.Real)) expr) = gene
                                                                               expr
                                                                               generateFExpression
 generateFExpression (F.FIf cond p n) = generateGIf cond float p n
+generateFExpression expr = fail $ show expr
 
 generateBExpression :: F.BExpr -> Codegen [BasicBlock]
 generateBExpression (F.BLit val) = generateGLit val i1 i1Lit
@@ -402,6 +403,7 @@ generateBExpression (F.BBinary op leftExpr rightExpr) = generateGBinary
         F.BAnd   -> And l r defaultInstrMeta
         F.BOr    -> Or l r defaultInstrMeta
         F.BNotEq -> Xor l r defaultInstrMeta
+        F.BXor   -> Xor l r defaultInstrMeta
 generateBExpression (F.IRBinary rOp leftExpr rightExpr) =
   do
     leftInstrs <- generateIExpression leftExpr
@@ -463,6 +465,7 @@ generateBExpression (F.BAssign (F.LValue (F.VarSymbol name F.Bool)) expr) = gene
                                                                               expr
                                                                               generateBExpression
 generateBExpression (F.BIf cond p n) = generateGIf cond i1 p n
+generateBExpression expr = fail $ show expr
 
 genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
 genCall n aTys rTy isVararg argExprs = do
@@ -501,24 +504,20 @@ generateExpression (F.BExpr expr) = generateBExpression expr
 
 passArg :: F.Expr -> Codegen ([BasicBlock], (Operand, [ParameterAttribute]))
 passArg expr
-  | (F.IExpr (F.IVar (F.VarSymbol name F.Int))) <- expr = genPassing name i32
-  | (F.FExpr (F.FVar (F.VarSymbol name F.Real))) <- expr = genPassing name float
-  | (F.BExpr (F.BVar (F.VarSymbol name F.Bool))) <- expr = genPassing name i1
+  | (F.IExpr iExpr) <- expr = genPassing (generateIExpression iExpr) i32
+  | (F.FExpr fExpr) <- expr = genPassing (generateFExpression fExpr) float
+  | (F.BExpr bExpr) <- expr = genPassing (generateBExpression bExpr) i1
   | (F.SExpr (F.ConstSymbol name F.String)) <- expr =
       return
         ([], (ConstantOperand
                 (GetElementPtr True (GlobalReference strPointerType (Name name))
                    [i32Lit 0, i32Lit 0]), []))
-  | otherwise = fail $ show expr
   where
-    genPassing name ty =
+    genPassing genBl ty =
       do
-        freeRegister <- claimRegister
-        bl <- simpleBlock
-                [ freeRegister := Load False (LocalReference ty (Name name)) Nothing align4
-                                    defaultInstrMeta
-                ]
-        return (bl, (LocalReference ty freeRegister, []))
+        bl <- genBl
+        resultReg <- lastUsedRegister
+        return (bl, (LocalReference ty resultReg, []))
 
 -- TODO ConstLetStmt
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
