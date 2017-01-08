@@ -33,7 +33,7 @@ modifyTransform f =
     put $ TransformState (f . declarations $ current)
 
 externalFns :: [FnLet]
-externalFns = [DeclareFnLet (VariadicFnSymbol "printf" [String] Nothing)]
+externalFns = [DeclareFnLet (VariadicFnSymbol "printf" [String] (Just Int))]
 
 transformProgram :: Program -> Program
 transformProgram (Program consts vars fns mainFn) =
