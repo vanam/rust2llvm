@@ -469,7 +469,7 @@ generateBExpression expr = fail $ show expr
 
 genCall :: String -> [F.ValueType] -> (Maybe F.ValueType) -> Bool -> [F.Expr] -> Codegen [BasicBlock]
 genCall n aTys rTy isVararg argExprs = do
-  argsWithInstructions <- mapM passArg argExprs
+  argsWithInstructions <- mapM (passArg (n == "printf")) argExprs
   instructions <- return $ concatMap fst argsWithInstructions
   cl <- call rTy (map snd argsWithInstructions)
   bl <- simpleBlock cl
@@ -494,7 +494,7 @@ genCall n aTys rTy isVararg argExprs = do
                                                          isVararg)
                                                       (Name n))
                          instrs
-                         []  --[Left $ GroupID 0]
+                         []
                          defaultInstrMeta
 
 generateExpression :: F.Expr -> Codegen [BasicBlock]
@@ -502,22 +502,30 @@ generateExpression (F.IExpr expr) = generateIExpression expr
 generateExpression (F.FExpr expr) = generateFExpression expr
 generateExpression (F.BExpr expr) = generateBExpression expr
 
-passArg :: F.Expr -> Codegen ([BasicBlock], (Operand, [ParameterAttribute]))
-passArg expr
-  | (F.IExpr iExpr) <- expr = genPassing (generateIExpression iExpr) i32
-  | (F.FExpr fExpr) <- expr = genPassing (generateFExpression fExpr) float
-  | (F.BExpr bExpr) <- expr = genPassing (generateBExpression bExpr) i1
+passArg :: Bool -> F.Expr -> Codegen ([BasicBlock], (Operand, [ParameterAttribute]))
+passArg floatToDouble expr
+  | (F.IExpr iExpr) <- expr = genPassing False (generateIExpression iExpr) i32
+  | (F.FExpr fExpr) <- expr = genPassing floatToDouble (generateFExpression fExpr) float
+  | (F.BExpr bExpr) <- expr = genPassing False (generateBExpression bExpr) i1
   | (F.SExpr (F.ConstSymbol name F.String)) <- expr =
       return
         ([], (ConstantOperand
                 (GetElementPtr True (GlobalReference strPointerType (Name name))
                    [i32Lit 0, i32Lit 0]), []))
   where
-    genPassing genBl ty =
-      do
-        bl <- genBl
-        resultReg <- lastUsedRegister
-        return (bl, (LocalReference ty resultReg, []))
+    genPassing fTd genBl ty =
+      case fTd of
+        False -> do
+          bl <- genBl
+          resultReg <- lastUsedRegister
+          return (bl, (LocalReference ty resultReg, []))
+        True -> do
+          bl <- genBl
+          resultReg <- lastUsedRegister
+          doubleReg <- claimRegister
+          cast <- simpleBlock
+                    [doubleReg := FPExt (LocalReference float resultReg) double defaultInstrMeta]
+          return (bl ++ cast, (LocalReference double doubleReg, []))
 
 -- TODO ConstLetStmt
 generateStatement :: F.Stmt -> Codegen [BasicBlock]
@@ -729,7 +737,10 @@ genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-
                                      ty
                                      (Name name)
                                      (args, isVararg)
-                                     [Left $ GroupID (if body == [] then 1 else 0)]
+                                     [Left $ GroupID
+                                               (if body == []
+                                                  then 1
+                                                  else 0)]
                                      Nothing
                                      Nothing
                                      defaultAlignment
@@ -840,7 +851,8 @@ printfAttributes :: Definition
 printfAttributes = FunctionAttributes (GroupID 1) []
 
 topLevelDefs :: F.Program -> [Definition]
-topLevelDefs program = [defaultfunctionAttributes, printfAttributes] ++ fmap GlobalDefinition (programInAST program)
+topLevelDefs program = [defaultfunctionAttributes, printfAttributes] ++ fmap GlobalDefinition
+                                                                          (programInAST program)
 
 {-
   TODO(optional) Set module DataLayout
