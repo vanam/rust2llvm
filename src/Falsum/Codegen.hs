@@ -867,8 +867,9 @@ asm :: String -> F.Program -> IO String
 asm name program = withContext $ \ctx ->
   liftError $ withModuleFromAST ctx (moduleInAST name program) moduleLLVMAssembly
 
-codegen :: String -> F.Program -> IO ()
+codegen :: String -> F.Program -> IO String
 codegen name program = do
   --putStrLn $ show problem
   llvmIR <- asm name program
-  putStrLn llvmIR
+  --putStrLn llvmIR
+  return llvmIR
