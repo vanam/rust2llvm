@@ -4,7 +4,7 @@ static RANDOM_SEED: i32 = 3;                              // random seed = 3, ot
 const N: i32 = 44448853;                                   // we assume that n is not a large prime
 
 fn abs_val(a: i32) -> i32 {
-    //if as a expression and expression as a implicit return statement
+    // if as a expression and expression as a implicit return statement
     if a > 0 {
          a;
     } else {
@@ -29,7 +29,7 @@ fn mulmod(a: i32, b: i32, c: i32) -> i32 {            // returns (a * b) % c, an
 }
 
 fn gcd(a: i32, b: i32) -> i32 {
-    //support for direct recursion
+    // support for direct recursion
     return if b == 0 { a; } else { gcd(b, a % b); };
 }
 
@@ -48,18 +48,18 @@ fn pollard_rho(n: i32) -> i32 {
 
         d = gcd(abs_val(y - x), n);                                              // the key insight
 
-        // if (d != 1 && d != n) {
-        if (d != 1) & (d != n) {
+        if (d != 1) & (d != n) {              // we don't support short-circuit operators || and &&
             return d;
         }
-         // found one non-trivial factor
+
+        // found one non-trivial factor
         if i == k {
             y = x;
             k = k * 2;
         }
     }
     // unreachable
-    return -1; //set mandatory return
+    return -1;                                                              // set mandatory return
 }
 
 fn main() {

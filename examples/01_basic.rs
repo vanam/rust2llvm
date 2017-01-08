@@ -1,13 +1,14 @@
 
-// Global variable
+// global variable
 static START: i32 = 10;
 
-// Constant
+// constant
 const DECREMENT: i32 = 1;
 
 fn main() {
+    // variables are mutable, mut keyword is optional
     let mut c: i32 = START;
-    let d: i32 = 2; // variables are mutable, mut keyword is optional
+    let d: i32 = 2;                // unused variable
 
     loop {
         printf("%d\n", c);

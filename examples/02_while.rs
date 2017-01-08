@@ -1,6 +1,6 @@
 
 fn main() {
-    let mut number: i32 = 5;// 5! = 120
+    let mut number: i32 = 5;                      // 5! = 120
     let mut factorial: i32 = 1;
 
     // loop terminates when number is less than or equal to 0

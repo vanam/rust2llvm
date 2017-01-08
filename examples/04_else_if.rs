@@ -1,6 +1,6 @@
 
 fn func() -> i32 {
-    //if as a expression and as implicit return statement
+    // if as a expression and as implicit return statement
     if true {
         if true {
             1;
@@ -29,7 +29,7 @@ fn main() {
         printf("Is odd\n");
     }
 
-    //if as a expression in assignment
+    // if as a expression in assignment
     a = if true {
         1;
     } else {
