@@ -1,25 +1,20 @@
 <Program> ::= <TopLevel> { <TopLevel> }
 <TopLevel> ::= <FnLet> | <ConstLet> | <IVarLet> | <FVarLet> | <BinVarLet>
 
-<FnLet> ::= "fn" <SymbolName> "(" [ <Arg> { "," <Arg> } ] ")" [ <ReturnType> ] <Block>
-<ReturnType> ::= "->" <Type>
+<FnLet> ::= "fn" <SymbolName> "(" [ <Arg> { "," <Arg> } ] ")" [ "->" <Type> ] <Block>
 <Arg> ::= <SymbolName> ":" <Type>
 <Block> ::= "{" { <Stmt> } "}"
-<Stmt> ::= <AnyStmt> | <IIf> | <If> | <Expr> ";"
-<AnyStmt> ::= <ConstLet> | <IVarLet> | <FVarLet> | <BinVarLet> | <Loop> | <While> | <Return> | <VCall>
+<Stmt> ::= <ConstLet> | <IVarLet> | <FVarLet> | <BinVarLet> | <Loop> | <While> | <Return> | <IIf> | <If> | <Expr> ";"
 <IIf> ::= "if" <BExpr> <IIfBlock> <IElse>
-<IIfBlock> ::= "{" { <IIfInnerStmt> } , <IExpr> | <IIf> "}"
-<IIfInnerStmt> ::= <AnyStmt> | <IIf> | <If> | <Expr> ";"
+<IIfBlock> ::= "{" { <Stmt> } , <IExpr> | <IIf> "}"
 <If> ::= "if" <BExpr> <Block> [ <Else> ]
 <Expr> ::= <BExpr> | <IExpr> | <FExpr>
 <Loop> ::= "loop" <Block>
 <While> ::= "while" <BExpr> <Block>
 <Return> ::= "return" , ";" | <IExpr> ";" | <FExpr> ";" |  <BExpr> ";"
-<VCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")" ";"
-<Else> ::= "else" , <IfAsList> | <Block>
-<IElse> ::= "else" , <IIfAsList> | <IIfBlock>
-<IfAsList> ::= <If>
-<IIfAsList> ::= <IIf>
+<Call> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")" ";"
+<Else> ::= "else" , <If> | <Block>
+<IElse> ::= "else" , <IIf> | <IIfBlock>
 
 <ConstLet> ::= "const" <SymbolName> ":" <Type> "=" <Literal> ";"
 <SymbolName> ::= _isAnySymbol_
@@ -32,31 +27,16 @@
 
 <VarSymbolName> ::= "let" | "static" , <SymbolName> [ "mut" ]
 
-<IExpr_IIF> ::= "if"
 <IExpr> ::= operator_magic(<ITerm>)
-<ITerm> ::= "(" <IExpr> ")" | <ICall> | <IAssign> | <IVar> | <IIf> | <ILit>
+<ITerm> ::= "(" <IExpr> ")" | <Call> | <IAssign> | <SymbolName> | <IIf> | _intLiteral_
 <FExpr> ::= operator_magic(<FTerm>)
-<FTerm> ::= "(" <FExpr> ")" | <FCall> | <FAssign> | <FVar> | <FLit>
+<FTerm> ::= "(" <FExpr> ")" | <Call> | <FAssign> | <SymbolName> | _floatLiteral_
 <BExpr> ::= operator_magic(<BTerm>)
-<BTerm> ::= "(" <BExpr> ")" | <Relation> | <BCall> | <BAssign> | <BVar> | <True> | <False>
-
-<ICall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
-<FCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
-<BCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
+<BTerm> ::= "(" <BExpr> ")" | <Relation> | <Call> | <BAssign> | <SymbolName> | "true" | "false"
 
 <IAssign> ::= <SymbolName> "=" <IExpr>
 <FAssign> ::= <SymbolName> "=" <FExpr>
 <BAssign> ::= <SymbolName> "=" <BExpr>
 
-<IVar> ::= <SymbolName>
-<FVar> ::= <SymbolName>
-<BVar> ::= <SymbolName>
-
-<ILit> ::= _intLiteral_
-<FLit> ::= _floatLiteral_
-<True> ::= "true"
-<False> ::= "false"
-
-<Relation> ::= <IRBinary> | <FRBinary>
-<IRBinary> ::= <IExpr> _isRelationOperator_ <IExpr>
-<FRBinary> ::= <FExpr> _isRelationOperator_ <FExpr>
+<Relation> ::= <IExpr> _isRelationOperator_ <IExpr>
+             | <FExpr> _isRelationOperator_ <FExpr>
