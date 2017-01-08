@@ -35,13 +35,11 @@ compile input output verbose = do
   parsed <- return $ tokenizeParse handleName $ sourceCode
   case parsed of
     Left lexerError -> do
-      when verbose $ do
-        hPutStrLn stderr "Lexer fails:"
-        hPutStrLn stderr . show $ lexerError
+      hPutStrLn stderr "Lexer fails:"
+      hPutStrLn stderr . show $ lexerError
     Right (Left parserError) -> do
-      when verbose $ do
-        hPutStrLn stderr "Parser fails:"
-        hPutStrLn stderr . show $ parserError
+      hPutStrLn stderr "Parser fails:"
+      hPutStrLn stderr . show $ parserError
     Right (Right ast) -> do
       when verbose $ do
         hPutStrLn stderr "Parser AST:"
