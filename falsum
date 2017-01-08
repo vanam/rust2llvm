@@ -73,4 +73,4 @@ then
   exit 1
 fi
 
-stack exec falsum < "$FILE" | sed "0,/Codegen:/d" | clang -x ir -o "$OUTPUT_FILE" - -Wno-override-module
+stack exec falsum < "$FILE" 2>/dev/null | clang -x ir -o "$OUTPUT_FILE" - -Wno-override-module
