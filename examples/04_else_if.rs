@@ -2,13 +2,13 @@
 fn func() -> i32 {
     // if as a expression and as implicit return statement
     if true {
-        if true {
-            1;
+        if false {
+            1
         } else {
-            2;
+            2
         }
     } else {
-        3;
+        3
     }
 }
 
@@ -31,9 +31,9 @@ fn main() {
 
     // if as a expression in assignment
     a = if true {
-        1;
+        1
     } else {
-        2;
+        2
     };
 
     func();

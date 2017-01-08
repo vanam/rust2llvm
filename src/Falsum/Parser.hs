@@ -425,20 +425,21 @@ parseReturnType = structSymbol RArrow *> parseType
 parseBlock :: Parser [Stmt]
 parseBlock = inBraces $ modifyState addNewScope *> many parseStmt <* modifyState removeCurrentScope
 
+parseAnyStmt :: Parser Stmt
+parseAnyStmt = choice
+                 [ ConstLetStmt <$> parseConstLet
+                 , VarLetStmt <$> try parseIVarLet
+                 , VarLetStmt <$> try parseFVarLet
+                 , VarLetStmt <$> try parseBinVarLet
+                 , parseLoop
+                 , parseWhile
+                 , parseReturn
+                 , try parseVCall
+                 ]
+
 parseStmt :: Parser Stmt
-parseStmt = choice
-              [ ConstLetStmt <$> parseConstLet
-              , VarLetStmt <$> try parseIVarLet
-              , VarLetStmt <$> try parseFVarLet
-              , VarLetStmt <$> try parseBinVarLet
-              , parseLoop
-              , parseWhile
-              , parseReturn
-              , try parseVCall
-              , Expr <$> (IExpr <$> try parseIIf) -- no semicolon
-              , parseIf
-              , (Expr <$> parseExpr) <* structSymbol Semicolon
-              ]
+parseStmt = choice [parseAnyStmt, Expr <$> (IExpr <$> try parseIIf) -- no semicolon
+                                  , parseIf, (Expr <$> parseExpr) <* structSymbol Semicolon]
 
 parseLoop :: Parser Stmt
 parseLoop = do
@@ -501,17 +502,43 @@ parseIIf :: Parser IExpr
 parseIIf = do
   keyword Falsum.Lexer.If
   cond <- parseBExpr
-  ifBlock <- parseBlock
+  ifBlock <- parseIIfBlock
   elseBlock <- parseElse
   return $ IIf cond ifBlock elseBlock
 
   where
     parseElse = do
       keyword Else
-      choice [parseIfAsList, parseBlock]
+      choice [parseIfAsList, parseIIfBlock]
     parseIfAsList = do
       ifres <- parseIIf --must be typed too
       return [Expr (IExpr ifres)]
+
+parseIIfBlock :: Parser [Stmt]
+parseIIfBlock = do
+  structSymbol LBrace
+  modifyState addNewScope
+  stmts <- many $ try parseIIfInnerStmt
+  lastExpr <- optionMaybe parseIExpr
+  case lastExpr of
+    Just e -> do
+      modifyState removeCurrentScope
+      structSymbol RBrace
+      return $ stmts ++ [Expr (IExpr e)]
+    Nothing       --if IIf was parsed (Only IEXpr without Semicolon at end - sou could be the last)
+     -> do
+      let lastStmt = last stmts
+      case lastStmt of
+        Expr (IExpr IIf{}) -> do
+          modifyState removeCurrentScope
+          structSymbol RBrace
+          return stmts
+        _ -> unexpected "Expecting expression at the end of If expression"
+
+parseIIfInnerStmt :: Parser Stmt
+parseIIfInnerStmt = choice
+                      [parseAnyStmt, Expr <$> (IExpr <$> try parseIIf) -- no semicolon
+                                     , parseIf, (Expr <$> try parseExpr) <* structSymbol Semicolon]
 
 parseVCall :: Parser Stmt
 parseVCall =

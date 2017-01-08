@@ -6,9 +6,9 @@ const N: i32 = 44448853;       // we assume that n is not a large prime
 fn abs_val(a: i32) -> i32 {
     // if as a expression and expression as a implicit return statement
     if a > 0 {
-         a;
+         a
     } else {
-        -a;
+        -a
     }
 }
 
@@ -31,7 +31,7 @@ fn mulmod(a: i32, b: i32, c: i32) -> i32 {
 
 fn gcd(a: i32, b: i32) -> i32 {
     // support for direct recursion
-    return if b == 0 { a; } else { gcd(b, a % b); };
+    return if b == 0 { a } else { gcd(b, a % b) };
 }
 
 fn pollard_rho(n: i32) -> i32 {

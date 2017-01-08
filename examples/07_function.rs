@@ -2,9 +2,9 @@
 fn gcd(a: i32, b: i32) -> i32 {
     // if as a expression and expression as a implicit return statement
     if b == 0 {
-        a;
+        a
     } else {
-        gcd(b, a % b);                  // support for direct recursion
+        gcd(b, a % b)                  // support for direct recursion
     }
 }
 
