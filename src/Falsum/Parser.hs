@@ -274,13 +274,13 @@ parseIVarLet =
     state <- getState
     checkSymbolNotExists state symbName
     structSymbol Colon
-    ty <- parseType
+    satisfy $ isSymbol "i32"
     operator EqSign
     valueExpr <- parseIExpr
     case valueExpr of
       IIf{} -> return ()
       _     -> structSymbol Semicolon
-    forgedSymbol <- forgeSymbol symbName ty
+    forgedSymbol <- forgeSymbol symbName Int
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (IExpr (IAssign (LValue forgedSymbol) valueExpr))
 
@@ -291,11 +291,11 @@ parseFVarLet =
     state <- getState
     checkSymbolNotExists state symbName
     structSymbol Colon
-    ty <- parseType
+    satisfy $ isSymbol "f32"
     operator EqSign
     valueExpr <- parseFExpr
     structSymbol Semicolon
-    forgedSymbol <- forgeSymbol symbName ty
+    forgedSymbol <- forgeSymbol symbName Real
     putState $ addSymbolToScope forgedSymbol state
     return $ VarLet forgedSymbol (FExpr (FAssign (LValue forgedSymbol) valueExpr))
 
@@ -316,7 +316,7 @@ parseBinVarLet =
   where
     parseBoolType = do
       structSymbol Colon
-      parseType
+      satisfy $ isSymbol "bool"
       return ()
 
 parseVarSymbolName :: Parser String
@@ -521,7 +521,11 @@ parseVCall =
     structSymbol Semicolon
     fnSym <- safeLookupSymbol fnName "Missing function symbol: "
     checkFnCallParams fnSym fnParams
-    return $ VCall fnSym fnParams
+    case fnSym of
+      FnSymbol _ _ Nothing         -> return $ VCall fnSym fnParams
+      VariadicFnSymbol _ _ Nothing -> return $ VCall fnSym fnParams
+      _                            -> unexpected
+                                        "Function return type does not match. Expecting void."
 
 sLit :: Parser Expr
 sLit =
@@ -586,7 +590,11 @@ parseICall =
     fnParams <- inParens $ parseExpr `sepBy` comma
     fnSym <- safeLookupSymbol fnName "Missing function symbol: "
     checkFnCallParams fnSym fnParams
-    return $ ICall fnSym fnParams
+    case fnSym of
+      FnSymbol _ _ (Just Int)         -> return $ ICall fnSym fnParams
+      VariadicFnSymbol _ _ (Just Int) -> return $ ICall fnSym fnParams
+      _                               -> unexpected
+                                           "Function return type does not match. Expection int"
 
 parseFTerm :: Parser FExpr
 parseFTerm = choice
@@ -627,7 +635,11 @@ parseFCall =
     fnParams <- inParens $ parseExpr `sepBy` comma
     fnSym <- safeLookupSymbol fnName "Missing function symbol: "
     checkFnCallParams fnSym fnParams
-    return $ FCall fnSym fnParams
+    case fnSym of
+      FnSymbol _ _ (Just Real)         -> return $ FCall fnSym fnParams
+      VariadicFnSymbol _ _ (Just Real) -> return $ FCall fnSym fnParams
+      _                                -> unexpected
+                                            "Function return type does not match. Expection float"
 
 parseFAssign :: Parser FExpr
 parseFAssign =
@@ -702,7 +714,11 @@ parseBCall =
     fnParams <- inParens $ parseExpr `sepBy` comma
     fnSym <- safeLookupSymbol fnName "Missing function symbol: "
     checkFnCallParams fnSym fnParams
-    return $ BCall fnSym fnParams
+    case fnSym of
+      FnSymbol _ _ (Just Bool)         -> return $ BCall fnSym fnParams
+      VariadicFnSymbol _ _ (Just Bool) -> return $ BCall fnSym fnParams
+      _                                -> unexpected
+                                            "Function return type does not match. Expection bool"
 
 parseRelation :: Parser BExpr
 parseRelation = choice [parseIRBinary, parseFRBinary]
