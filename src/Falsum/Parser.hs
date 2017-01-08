@@ -526,6 +526,9 @@ parseIIfBlock = do
       return $ stmts ++ [Expr (IExpr e)]
     Nothing       --if IIf was parsed (Only IEXpr without Semicolon at end - sou could be the last)
      -> do
+      if length stmts == 0
+        then unexpected "Empty IIf block statements"
+        else return ()
       let lastStmt = last stmts
       case lastStmt of
         Expr (IExpr IIf{}) -> do

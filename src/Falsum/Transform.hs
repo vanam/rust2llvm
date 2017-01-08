@@ -3,6 +3,11 @@ module Falsum.Transform where
 import           Control.Monad.Trans.State.Lazy
 import           Falsum.AST
 
+import           Debug.Trace
+
+println :: Show a => a -> Transform ()
+println msg = trace (show msg) $ return ()
+
 data TransformState = TransformState { declarations :: [ConstLet] }
   deriving Show
 
@@ -62,23 +67,38 @@ transformStmt stmt =
     Expr expr ->
       case expr of
         IExpr (IIf cond ifBranch elseBranch) -> do
-          ifBranchTransformed <- mapM transformStmt ifBranch
-          elseBranchTransformed <- mapM transformStmt elseBranch
-          return $ Expr (IExpr (IIf cond ifBranchTransformed elseBranchTransformed))
+          condTrans <- transformStmt (Expr (BExpr cond))
+          ifBranchTrans <- mapM transformStmt ifBranch
+          elseBranchTrans <- mapM transformStmt elseBranch
+          let Expr (BExpr c) = condTrans
+          return $ Expr (IExpr (IIf c ifBranchTrans elseBranchTrans))
+        BExpr (IRBinary op expr1 expr2) -> do
+          e1Trans <- transformStmt (Expr (IExpr expr1))
+          e2Trans <- transformStmt (Expr (IExpr expr2))
+          let Expr (IExpr e1) = e1Trans
+          let Expr (IExpr e2) = e2Trans
+          return $ Expr $ BExpr (IRBinary op e1 e2)
         anything -> return $ Expr anything
     If cond ifBranch elseBranch -> do
       ifBranchTransformed <- mapM transformStmt ifBranch
-      case elseBranch of
-        Just stmts -> do
-          elseTransformed <- mapM transformStmt stmts
-          return $ If cond ifBranchTransformed (Just elseTransformed)
-        Nothing -> return $ If cond ifBranchTransformed Nothing
+      condTrans <- transformStmt (Expr (BExpr cond))
+      case condTrans of
+        Expr (BExpr c)    -- strip transformed condition
+         ->
+          case elseBranch of
+            Just stmts -> do
+              elseTransformed <- mapM transformStmt stmts
+              return $ If c ifBranchTransformed (Just elseTransformed)
+            Nothing -> return $ If c ifBranchTransformed Nothing
+
     Loop stmts -> do
       tStmts <- mapM transformStmt stmts
       return $ Loop tStmts
     While condition stmts -> do
+      condTrans <- transformStmt (Expr (BExpr condition))
       tStmts <- mapM transformStmt stmts
-      return $ While condition tStmts
+      let Expr (BExpr c) = condTrans
+      return $ While c tStmts
     VCall sym args -> do
       tArgs <- mapM transformExpr args
       return $ VCall (transformSymbol sym) tArgs
