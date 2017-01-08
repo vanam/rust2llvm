@@ -18,7 +18,7 @@ lowLevelMain highLevelMain = FnLet (FnSymbol "main" [] (Just Int)) []
                                ]
 
 declaration :: String -> String -> ConstLet
-declaration name val = ConstLet (ConstSymbol name String) (StringVal val)
+declaration name val = ConstLet (ConstSymbol name String) (StringVal $ val ++ "\NUL")
 
 uniqueIdentifer :: Transform String
 uniqueIdentifer =
