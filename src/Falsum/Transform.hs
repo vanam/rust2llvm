@@ -66,7 +66,20 @@ transformExpr _ s = return s
 transformStmt :: String -> Stmt -> Transform Stmt
 transformStmt rndStr stmt =
   case stmt of
-    -- TODO go through the expressions because of possible if expression with printf
+    Expr expr ->
+      case expr of
+        IExpr (IIf cond ifBranch elseBranch) -> do
+          ifBranchTransformed <- mapM (transformStmt rndStr) ifBranch
+          elseBranchTransformed <- mapM (transformStmt rndStr) elseBranch
+          return $ Expr (IExpr (IIf cond ifBranchTransformed elseBranchTransformed))
+        anything -> return $ Expr anything
+    If cond ifBranch elseBranch -> do
+      ifBranchTransformed <- mapM (transformStmt rndStr) ifBranch
+      case elseBranch of
+        Just stmts -> do
+          elseTransformed <- mapM (transformStmt rndStr) stmts
+          return $ If cond ifBranchTransformed (Just elseTransformed)
+        Nothing -> return $ If cond ifBranchTransformed Nothing
     Loop stmts -> do
       tStmts <- mapM (transformStmt rndStr) stmts
       return $ Loop tStmts
