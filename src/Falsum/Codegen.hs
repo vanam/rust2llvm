@@ -494,7 +494,7 @@ genCall n aTys rTy isVararg argExprs = do
                                                          isVararg)
                                                       (Name n))
                          instrs
-                         [Left $ GroupID 0]
+                         []  --[Left $ GroupID 0]
                          defaultInstrMeta
 
 generateExpression :: F.Expr -> Codegen [BasicBlock]
@@ -729,7 +729,7 @@ genFn ty name args isVararg body = Function -- https://github.com/bscarlet/llvm-
                                      ty
                                      (Name name)
                                      (args, isVararg)
-                                     [Left $ GroupID 0]
+                                     [Left $ GroupID (if body == [] then 1 else 0)]
                                      Nothing
                                      Nothing
                                      defaultAlignment
@@ -836,8 +836,11 @@ programInAST (F.Program constLetList staticVarLetList fnLetList mainLet) = stati
 defaultfunctionAttributes :: Definition
 defaultfunctionAttributes = FunctionAttributes (GroupID 0) [NoUnwind, UWTable]
 
+printfAttributes :: Definition
+printfAttributes = FunctionAttributes (GroupID 1) []
+
 topLevelDefs :: F.Program -> [Definition]
-topLevelDefs program = [defaultfunctionAttributes] ++ fmap GlobalDefinition (programInAST program)
+topLevelDefs program = [defaultfunctionAttributes, printfAttributes] ++ fmap GlobalDefinition (programInAST program)
 
 {-
   TODO(optional) Set module DataLayout
