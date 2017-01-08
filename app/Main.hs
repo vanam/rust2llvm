@@ -56,10 +56,9 @@ main = do
       putStrLn "Parser fails:"
       putStrLn . show $ parserError
     Right (Right ast) -> do
-      rnd <- randomString 20
       putStrLn "Parser AST:"
       putStrLn . show $ ast
-      transformedAst <- return $ transformProgram rnd ast
+      transformedAst <- return $ transformProgram ast
       putStrLn "" >> putStrLn "Transformed AST:"
       putStrLn . show $ transformedAst
       putStrLn "" >> putStrLn "Codegen:"

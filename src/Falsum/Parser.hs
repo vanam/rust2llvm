@@ -377,8 +377,7 @@ parseFnLet =
     fnParams <- inParens $ parseArg `sepBy` comma
     fnReturnType <- optionMaybe parseReturnType
     putState $ addSymbolToScope (FnSymbol fnName (map getType fnParams) fnReturnType) state
-    state <- getState
-    putState $ setReturnTypeOfScope state fnReturnType
+    modifyState $ flip setReturnTypeOfScope fnReturnType
     modifyState addNewScope
     addParamsToScope fnParams
     fnBlock <- parseBlock

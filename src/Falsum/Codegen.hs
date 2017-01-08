@@ -252,7 +252,7 @@ generateGIf cond ty thenStmts elseStmts =
   do
     condBlock <- generateBExpression cond
     resultReg <- lastUsedRegister
-    name <- ("_var" ++) <$> currentBlockIdentifier
+    name <- (".var" ++) <$> currentBlockIdentifier
     allocBlock <- generateGAlloca (Name name) ty
     p <- nextInnerBlockIdentifier "then"
     n <- nextInnerBlockIdentifier "else"

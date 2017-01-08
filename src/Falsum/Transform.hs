@@ -2,7 +2,6 @@ module Falsum.Transform where
 
 import           Control.Monad.Trans.State.Lazy
 import           Falsum.AST
-import           System.Random
 
 data TransformState = TransformState { declarations :: [ConstLet] }
   deriving Show
@@ -21,16 +20,11 @@ lowLevelMain highLevelMain = FnLet (FnSymbol "main" [] (Just Int)) []
 declaration :: String -> String -> ConstLet
 declaration name val = ConstLet (ConstSymbol name String) (StringVal val)
 
-randomString :: Int -> IO String
-randomString len = do
-  g <- getStdGen
-  return $ take len (randomRs ('a', 'z') g)
-
-uniqueIdentifer :: String -> Transform String
-uniqueIdentifer rndStr =
+uniqueIdentifer :: Transform String
+uniqueIdentifer =
   do
     decls <- get
-    return $ "format_" ++ rndStr ++ "_" ++ (show . length . declarations $ decls)
+    return $ ".format." ++ (show . length . declarations $ decls)
 
 modifyTransform :: ([ConstLet] -> [ConstLet]) -> Transform ()
 modifyTransform f =
@@ -41,54 +35,53 @@ modifyTransform f =
 externalFns :: [FnLet]
 externalFns = [DeclareFnLet (VariadicFnSymbol "printf" [String] Nothing)]
 
-transformProgram :: String -> Program -> Program
-transformProgram rndStr (Program consts vars fns mainFn) =
+transformProgram :: Program -> Program
+transformProgram (Program consts vars fns mainFn) =
   Program (consts ++ (declarations . snd $ tFnsAndDecls)) vars ((fst tFnsAndDecls) ++ externalFns)
-    (lowLevelMain $ newMain rndStr)
+    (lowLevelMain newMain)
   where
-    tFnsAndDecls = runState (mapM (transformFn rndStr) (fns ++ [mainFn])) initialTransformState
+    tFnsAndDecls = runState (mapM transformFn (fns ++ [mainFn])) initialTransformState
 
-newMain :: String -> String
-newMain s = "main_" ++ s
+newMain :: String
+newMain = ".main"
 
-transformSymbol :: String -> Symbol -> Symbol
-transformSymbol rndStr (FnSymbol "main" [] ty) = FnSymbol (newMain rndStr) [] ty
-transformSymbol _ s = s
+transformSymbol :: Symbol -> Symbol
+transformSymbol (FnSymbol "main" [] ty) = FnSymbol newMain [] ty
+transformSymbol s = s
 
-transformExpr :: String -> Expr -> Transform Expr
-transformExpr rndStr (SExpr (ConstSymbol stringAsName String)) = do
-  newName <- uniqueIdentifer rndStr
+transformExpr :: Expr -> Transform Expr
+transformExpr (SExpr (ConstSymbol stringAsName String)) = do
+  newName <- uniqueIdentifer
   modifyTransform (\decls -> decls ++ [declaration newName stringAsName])
   return $ (SExpr (ConstSymbol newName String))
+transformExpr s = return s
 
-transformExpr _ s = return s
-
-transformStmt :: String -> Stmt -> Transform Stmt
-transformStmt rndStr stmt =
+transformStmt :: Stmt -> Transform Stmt
+transformStmt stmt =
   case stmt of
     Expr expr ->
       case expr of
         IExpr (IIf cond ifBranch elseBranch) -> do
-          ifBranchTransformed <- mapM (transformStmt rndStr) ifBranch
-          elseBranchTransformed <- mapM (transformStmt rndStr) elseBranch
+          ifBranchTransformed <- mapM transformStmt ifBranch
+          elseBranchTransformed <- mapM transformStmt elseBranch
           return $ Expr (IExpr (IIf cond ifBranchTransformed elseBranchTransformed))
         anything -> return $ Expr anything
     If cond ifBranch elseBranch -> do
-      ifBranchTransformed <- mapM (transformStmt rndStr) ifBranch
+      ifBranchTransformed <- mapM transformStmt ifBranch
       case elseBranch of
         Just stmts -> do
-          elseTransformed <- mapM (transformStmt rndStr) stmts
+          elseTransformed <- mapM transformStmt stmts
           return $ If cond ifBranchTransformed (Just elseTransformed)
         Nothing -> return $ If cond ifBranchTransformed Nothing
     Loop stmts -> do
-      tStmts <- mapM (transformStmt rndStr) stmts
+      tStmts <- mapM transformStmt stmts
       return $ Loop tStmts
     While condition stmts -> do
-      tStmts <- mapM (transformStmt rndStr) stmts
+      tStmts <- mapM transformStmt stmts
       return $ While condition tStmts
     VCall sym args -> do
-      tArgs <- mapM (transformExpr rndStr) args
-      return $ VCall (transformSymbol rndStr sym) tArgs
+      tArgs <- mapM transformExpr args
+      return $ VCall (transformSymbol sym) tArgs
     anything -> return anything
 
 transformReturn :: Maybe ValueType -> [Stmt] -> [Stmt]
@@ -98,8 +91,8 @@ transformReturn _ stmt@[Return _] = stmt
 transformReturn ty (stmt:stmts) = stmt : transformReturn ty stmts
 transformReturn _ _ = undefined
 
-transformFn :: String -> FnLet -> Transform FnLet
-transformFn rndStr (FnLet sym@(FnSymbol _ _ ty) args body) = do
-  tBody <- mapM (transformStmt rndStr) body
+transformFn :: FnLet -> Transform FnLet
+transformFn (FnLet sym@(FnSymbol _ _ ty) args body) = do
+  tBody <- mapM transformStmt body
   tBodyRet <- return $ transformReturn ty tBody
-  return $ FnLet (transformSymbol rndStr sym) (map (transformSymbol rndStr) args) tBodyRet
+  return $ FnLet (transformSymbol sym) (map transformSymbol args) tBodyRet
