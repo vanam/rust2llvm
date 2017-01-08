@@ -1,0 +1,62 @@
+<Program> ::= <TopLevel> { <TopLevel> }
+<TopLevel> ::= <FnLet> | <ConstLet> | <IVarLet> | <FVarLet> | <BinVarLet>
+
+<FnLet> ::= "fn" <SymbolName> "(" [ <Arg> { "," <Arg> } ] ")" [ <ReturnType> ] <Block>
+<ReturnType> ::= "->" <Type>
+<Arg> ::= <SymbolName> ":" <Type>
+<Block> ::= "{" { <Stmt> } "}"
+<Stmt> ::= <AnyStmt> | <IIf> | <If> | <Expr> ";"
+<AnyStmt> ::= <ConstLet> | <IVarLet> | <FVarLet> | <BinVarLet> | <Loop> | <While> | <Return> | <VCall>
+<IIf> ::= "if" <BExpr> <IIfBlock> <IElse>
+<IIfBlock> ::= "{" { <IIfInnerStmt> } , <IExpr> | <IIf> "}"
+<IIfInnerStmt> ::= <AnyStmt> | <IIf> | <If> | <Expr> ";"
+<If> ::= "if" <BExpr> <Block> [ <Else> ]
+<Expr> ::= <BExpr> | <IExpr> | <FExpr>
+<Loop> ::= "loop" <Block>
+<While> ::= "while" <BExpr> <Block>
+<Return> ::= "return" , ";" | <IExpr> ";" | <FExpr> ";" |  <BExpr> ";"
+<VCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")" ";"
+<Else> ::= "else" , <IfAsList> | <Block>
+<IElse> ::= "else" , <IIfAsList> | <IIfBlock>
+<IfAsList> ::= <If>
+<IIfAsList> ::= <IIf>
+
+<ConstLet> ::= "const" <SymbolName> ":" <Type> "=" <Literal> ";"
+<SymbolName> ::= _isAnySymbol_
+<Type> ::= "i32" | "f32" | "bool"
+<Literal> ::= _isAnyLiteral_
+
+<IVarLet> ::= <VarSymbolName> ":" "i32" "=" , <IExpr_IIf> | <IExpr> ";"
+<FVarLet> ::= <VarSymbolName> ":" "f32" "=" <FExpr> ";"
+<BinVarLet> ::= <VarSymbolName> [ ":" "bool" ] "=" <BExpr> ";"
+
+<VarSymbolName> ::= "let" | "static" , <SymbolName> [ "mut" ]
+
+<IExpr_IIF> ::= "if"
+<IExpr> ::= operator_magic(<ITerm>)
+<ITerm> ::= "(" <IExpr> ")" | <ICall> | <IAssign> | <IVar> | <IIf> | <ILit>
+<FExpr> ::= operator_magic(<FTerm>)
+<FTerm> ::= "(" <FExpr> ")" | <FCall> | <FAssign> | <FVar> | <FLit>
+<BExpr> ::= operator_magic(<BTerm>)
+<BTerm> ::= "(" <BExpr> ")" | <Relation> | <BCall> | <BAssign> | <BVar> | <True> | <False>
+
+<ICall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
+<FCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
+<BCall> ::= <SymbolName> "(" [ <Expr> { "," <Expr> } ] ")"
+
+<IAssign> ::= <SymbolName> "=" <IExpr>
+<FAssign> ::= <SymbolName> "=" <FExpr>
+<BAssign> ::= <SymbolName> "=" <BExpr>
+
+<IVar> ::= <SymbolName>
+<FVar> ::= <SymbolName>
+<BVar> ::= <SymbolName>
+
+<ILit> ::= _intLiteral_
+<FLit> ::= _floatLiteral_
+<True> ::= "true"
+<False> ::= "false"
+
+<Relation> ::= <IRBinary> | <FRBinary>
+<IRBinary> ::= <IExpr> _isRelationOperator_ <IExpr>
+<FRBinary> ::= <FExpr> _isRelationOperator_ <FExpr>
