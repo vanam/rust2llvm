@@ -325,6 +325,7 @@ generateIExpression (F.IAssign (F.LValue (F.VarSymbol name F.Int)) expr) = gener
                                                                              expr
                                                                              generateIExpression
 generateIExpression (F.IIf cond p n) = generateGIf cond i32 p n
+generateIExpression expr = fail $ show expr
 
 generateFExpression :: F.FExpr -> Codegen [BasicBlock]
 generateFExpression (F.FLit val) = generateGLit val float floatLit
@@ -508,6 +509,7 @@ passArg expr
         ([], (ConstantOperand
                 (GetElementPtr True (GlobalReference strPointerType (Name name))
                    [i32Lit 0, i32Lit 0]), []))
+  | otherwise = fail $ show expr
   where
     genPassing name ty =
       do
